@@ -10,7 +10,7 @@
 # and returns the cluster graph as an igraph object. Size is
 # the size of the clusters in the initial graph.
 
-clusterGraph <- function(G, resol=32, fnm=NULL, nodes=14) {
+clusterGraph <- function(G, resol=20, fnm=NULL, nodes=14) {
   require(igraph)
   require(parallel)
   require(pbapply)
@@ -28,8 +28,9 @@ clusterGraph <- function(G, resol=32, fnm=NULL, nodes=14) {
   print("Louvain clustering.........")
   Glouv=cluster_louvain(G, resolution = resol)
   n=Glouv$names
-  Glouv=Glouv$memberships[2,]
+  Glouv=Glouv$memberships[3,]
   names(Glouv)=n
+  print(paste(c(max(Glouv)," clusters and " ,sum(table(Glouv)==1), " singlets"), sep="", collapse=""))
   save(Glouv,file=paste("Glouv",fnm,sep="")) 
   Grpsall=table(V(G)$Group)  
   gnm=names(Grpsall)
@@ -52,16 +53,12 @@ clusterGraph <- function(G, resol=32, fnm=NULL, nodes=14) {
     g=induced_subgraph(G,x)
     length(E(g))
   }))
-  rm(G)
-  gc()
+ 
   print("Calculating distances.........")
   
   n=length(E(Gctr))
   ei=seq_along(E(Gctr))
-  nmax=max(sapply(14:1, function(i) GCD(n,i)))
-  if (nmax==1) nmax=14
-  ni=nmax *10
-  ij=cut(ei,ni,labels=F)
+  ij=cut(ei,140,labels=F)
   
   cl=makeCluster(nmax)
   clusterExport(cl, c("Gctr","ij"), envir = environment())
@@ -72,29 +69,30 @@ clusterGraph <- function(G, resol=32, fnm=NULL, nodes=14) {
       es=ends(Gctr,i, names=F)   # indices of incident vertices
       ebtw=E(Gctr)$weight[i]     # number of between edges (weight of edge after contraction)
       s=vertex_attr(Gctr)$size[es[1,]]               # sizes of the two respective clusters in G
-      allein=sum(c(vertex_attr(Gctr)$edges[es[1,]])) # No of edges inside both clusters
-      d=(s[1]*(s[1]-1)/2+s[2]*(s[2]-1)/2)
-      if (d <= 0) d=1
-      pein=allein/d              # graph density inside clusters
-      if (pein<=0) pein=0.01
+      if (any(s==1)) return(1e2)
+      allein=vertex_attr(Gctr)$edges[es[1,]] # No of edges inside both clusters
+      d=c(s[1]*(s[1]-1)/2,s[2]*(s[2]-1)/2)
+      pein=min(allein/d)              # graph density inside clusters
       pebtw=ebtw/prod(s)         # edge density between clusters 
-      log10(pein/pebtw)          # log of the ratio of within/between edge density
+      return(pein/pebtw)          # log of the ratio of within/between edge density
     })
   },cl=cl)
   
   stopCluster(cl)
-  
+  rm(G)
+  gc()
   w=x[[1]]
   for (i in 2:ni){
     w=c(w,x[[i]])
   }
-  
+  w=log10(w)
   x=w[order(w)]
   x=x[length(x)]-x[length(x)-1]
   w=w-min(w)+x/2
   
   Gctr=set.edge.attribute(Gctr, name="weight", value=w)
   save(Gctr,file=paste("Gctr",fnm,sep=""))
+  save(Gctrpepnames,file=paste("Gctrpepnames",fnm,sep=""))
   
   print("Prune large distances down to the smallest connected graph...")
   x=mst(Gctr)
@@ -105,5 +103,5 @@ clusterGraph <- function(G, resol=32, fnm=NULL, nodes=14) {
  
   write_graph(Gctrsm,format = "graphml", file=paste("Gctrsm",fnm, ".graphml",sep=""))
  
-  return(Gctr)
+  return(Gctrsm)
 }
