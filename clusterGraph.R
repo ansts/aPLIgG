@@ -10,7 +10,7 @@
 # and returns the cluster graph as an igraph object. Size is
 # the size of the clusters in the initial graph.
 
-clusterGraph <- function(G, resol=20, fnm=NULL, nodes=14) {
+clusterGraph <- function(G, resol=30, fnm=NULL, nodes=14) {
   require(igraph)
   require(parallel)
   require(pbapply)
@@ -28,7 +28,9 @@ clusterGraph <- function(G, resol=20, fnm=NULL, nodes=14) {
   print("Louvain clustering.........")
   Glouv=cluster_louvain(G, resolution = resol)
   n=Glouv$names
-  Glouv=Glouv$memberships[3,]
+  d=nrow(Glouv$memberships)
+  if (d>1) d=d-1
+  Glouv=Glouv$memberships[d,]
   names(Glouv)=n
   print(paste(c(max(Glouv)," clusters and " ,sum(table(Glouv)==1), " singlets"), sep="", collapse=""))
   save(Glouv,file=paste("Glouv",fnm,sep="")) 
@@ -53,51 +55,45 @@ clusterGraph <- function(G, resol=20, fnm=NULL, nodes=14) {
     g=induced_subgraph(G,x)
     length(E(g))
   }))
- 
-  print("Calculating distances.........")
-  
-  n=length(E(Gctr))
-  ei=seq_along(E(Gctr))
-  ij=cut(ei,140,labels=F)
-  
-  cl=makeCluster(nmax)
-  clusterExport(cl, c("Gctr","ij"), envir = environment())
-  clusterEvalQ(cl, require(igraph))
-  
-  x=pbsapply(1:ni, function(j){ # using a log(1/estimate) of the modularity as a dissimilarity measure
-    sapply(seq_along(E(Gctr))[ij==j], function(i){
-      es=ends(Gctr,i, names=F)   # indices of incident vertices
-      ebtw=E(Gctr)$weight[i]     # number of between edges (weight of edge after contraction)
-      s=vertex_attr(Gctr)$size[es[1,]]               # sizes of the two respective clusters in G
-      if (any(s==1)) return(1e2)
-      allein=vertex_attr(Gctr)$edges[es[1,]] # No of edges inside both clusters
-      d=c(s[1]*(s[1]-1)/2,s[2]*(s[2]-1)/2)
-      pein=min(allein/d)              # graph density inside clusters
-      pebtw=ebtw/prod(s)         # edge density between clusters 
-      return(pein/pebtw)          # log of the ratio of within/between edge density
-    })
-  },cl=cl)
-  
-  stopCluster(cl)
   rm(G)
   gc()
-  w=x[[1]]
-  for (i in 2:ni){
-    w=c(w,x[[i]])
-  }
-  w=log10(w)
+  print("Calculating distances.........")
+
+  n=length(V(Gctr))
+  A=matrix(0,n,n)
+  rownames(A)=names(V(Gctr))
+  colnames(A)=names(V(Gctr))
+  eG=apply(ends(Gctr, E(Gctr), E(Gctr)),2,unlist) # matrix of edge ends
+  w=edge.attributes(Gctr)$weight                  # number of edges between clusters
+  A[eG]=w                                         # adjacency mx of clusters
+  A=t(A)
+  A[eG]=w
+  Ein=vertex_attr(Gctr)$edges                     # number of edges in each cluster
+  S=vertex_attr(Gctr)$size                        # number of vertices in each cluster
+  ex=(Ein)/(S*(S-1)/2+1*(S==1))
+  ex=matrix(rep(ex,n),n,n)
+  m=(ex + t(ex))/2                                # mean density
+  w=(S%*%t(S))*m/(A+1*(A==0))                     # expected no of edges between/ actual
+  rownames(w)=names(V(Gctr))                      # w is a dissimilarity measure
+  colnames(w)=names(V(Gctr))
+  w=w[eG]
+
+  w=log10(w+min(w[w>0])*(w==0)) 
   x=w[order(w)]
   x=x[length(x)]-x[length(x)-1]
   w=w-min(w)+x/2
   
   Gctr=set.edge.attribute(Gctr, name="weight", value=w)
   save(Gctr,file=paste("Gctr",fnm,sep=""))
-  save(Gctrpepnames,file=paste("Gctrpepnames",fnm,sep=""))
+  save(Gpeps,file=paste("Gctrpepnames",fnm,sep=""))
   
   print("Prune large distances down to the smallest connected graph...")
   x=mst(Gctr)
   thr=max(E(x)$weight)
   Gctrsm=delete.edges(Gctr,E(Gctr)[E(Gctr)$weight>thr])
+  x=edge_attr(Gctrsm)$weight               # convert weights from dissimilarity to similarity
+  x=scale(1/x, center=F)
+  Gctrsm=set.edge.attribute(Gctrsm,"weight", value=x)
   Gctrsm=set.vertex.attribute(Gctrsm,"size",value=3*log(vertex_attr(Gctrsm)$size+0.5,2))
   save(Gctrsm,file=paste("Gctrsm",fnm,sep=""))
  
