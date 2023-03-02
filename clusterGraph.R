@@ -25,12 +25,12 @@ clusterGraph <- function(G, resol=30, fnm=NULL, nodes=14) {
   dev.off()
   
   if (is.null(fnm)) fnm=round(runif(1,1,1e4),0)
-  print("Louvain clustering.........")
-  Glouv=cluster_louvain(G, resolution = resol)
+  print("Leiden clustering.........")
+  Glouv=cluster_leiden(G, objective_function = "modularity", resolution_parameter = resol, n_iterations = 5)
   n=Glouv$names
-  d=nrow(Glouv$memberships)
-  if (d>1) d=d-1
-  Glouv=Glouv$memberships[d,]
+  #d=nrow(Glouv$memberships)
+  #if (d>1) d=d-1
+  Glouv=Glouv$membership
   names(Glouv)=n
   print(paste(c(max(Glouv)," clusters and " ,sum(table(Glouv)==1), " singlets"), sep="", collapse=""))
   save(Glouv,file=paste("Glouv",fnm,sep="")) 
@@ -50,6 +50,7 @@ clusterGraph <- function(G, resol=30, fnm=NULL, nodes=14) {
   names(Gpeps)=clnm
 
   Gctr=set_vertex_attr(Gctr, "name", value=clnm)
+  vertex_attr(Gctr)$name=unlist(vertex_attr(Gctr)$name)
   Gctr=set_vertex_attr(Gctr, "size", value=lengths(Gpeps))
   Gctr=set_vertex_attr(Gctr, "edges", value=sapply(Gpeps,function(x){
     g=induced_subgraph(G,x)
@@ -85,16 +86,22 @@ clusterGraph <- function(G, resol=30, fnm=NULL, nodes=14) {
   
   Gctr=set.edge.attribute(Gctr, name="weight", value=w)
   save(Gctr,file=paste("Gctr",fnm,sep=""))
-  save(Gpeps,file=paste("Gctrpepnames",fnm,sep=""))
+  save(Gpeps,file="Gctrpeps")
   
-  print("Prune large distances down to the smallest connected graph...")
-  x=mst(Gctr)
-  thr=max(E(x)$weight)
+  print("Prune large distances ...")
+  thrng=range(edge.attributes(Gctr)$weight)
+  n=length(V(Gctr))
+  thrscan=t(sapply(seq(thrng[1],thrng[2],length.out=200), function(th){
+    Gctrsm=delete.edges(Gctr,E(Gctr)[E(Gctr)$weight>th])
+    cmp=components(Gctrsm)
+    c(th,cmp$no,sum(cmp$csize<5), graph.density(Gctrsm))
+  }))
+  # x=mst(Gctr)
+  # thr=max(E(x)$weight)
+  thr=min(thrscan[thrscan[,3]<round(0.05*n),1])
   Gctrsm=delete.edges(Gctr,E(Gctr)[E(Gctr)$weight>thr])
-  x=edge_attr(Gctrsm)$weight               # convert weights from dissimilarity to similarity
-  x=scale(1/x, center=F)
-  Gctrsm=set.edge.attribute(Gctrsm,"weight", value=x)
-  Gctrsm=set.vertex.attribute(Gctrsm,"size",value=3*log(vertex_attr(Gctrsm)$size+0.5,2))
+  #Gctrsm=set.edge.attribute(Gctrsm,"weight", value=x)
+  #Gctrsm=set.vertex.attribute(Gctrsm,"size",value=3*log(vertex_attr(Gctrsm)$size+0.5,2))
   save(Gctrsm,file=paste("Gctrsm",fnm,sep=""))
  
   write_graph(Gctrsm,format = "graphml", file=paste("Gctrsm",fnm, ".graphml",sep=""))

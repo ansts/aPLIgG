@@ -9,7 +9,9 @@ require(heatmap3)
 require(uwot)
 require(corrplot)
 require(stringi)
+require(qualV)
 
+require(ggplot2)
 require(ggseqlogo)
 require(infotheo)
 require(rsetse)
@@ -574,10 +576,14 @@ save(Gm, file="Gmw")
 load("Ggw")
 Gg=set_edge_attr(Gg,"weight",value=1)
 Gg30sm=clusterGraph(Gg, resol=30)
+load("Gctrpeps")
+Gg30peps=Gpeps
 rm(Gg)
 load("Gmw")
 Gm=set_edge_attr(Gm,"weight",value=1)
-Gm30sm=clusterGraph(Gm)
+Gm30sm=clusterGraph(Gm, resol=30)
+load("Gctrpeps")
+Gm30peps=Gpeps
 rm(Gm)
 #Gg1s m=clusterGraph(Gg, resol = 1)
 
@@ -635,6 +641,7 @@ bkgNNg=bkgNN[names(V(Gg))]
 rm(Gg)
 
 ## Cross graph similarities -----
+
 cl=makeCluster(14)
 clusterExport(cl, "Gm30peps")
 Ggxm=pbsapply(Gg30peps,function(p1){
@@ -661,8 +668,6 @@ Gbginm=sapply(Gm30peps, function(p){
 })
 Gm30sm=set.vertex.attribute(Gm30sm,name="Bkgovrlp",value=Gbginm)
 Gg30sm=set.vertex.attribute(Gg30sm,name="Bkgovrlp",value=Gbging)
-write_graph(Gm30sm,format = "graphml", file="Gm30sm.graphml")
-write_graph(Gg30sm,format = "graphml", file="Gg30sm.graphml")
 
 qq7Ig=sapply(Gg30peps, function(l){
   sum(qq7I[l]>0)/length(l)
@@ -738,9 +743,15 @@ Gg30sm=set.vertex.attribute(Gg30sm,name="A/C",value=(Gg60CA[,2]+0.5)/(Gg60CA[,1]
 Gg30sm=set.vertex.attribute(Gg30sm,name="A/C_sig",value=Gg_good)
 Gg30sm=set.vertex.attribute(Gg30sm,name="Pub",value=Gg60P)
 Gg30sm=set.vertex.attribute(Gg30sm,name="Id",value=qq7Ig)
-
 write_graph(Gm30sm,format = "graphml", file="Gm30sm.graphml")
 write_graph(Gg30sm,format = "graphml", file="Gg30sm.graphml")
+
+d=round(corrD(Gg30sm))
+x=grEmbed(Gg30sm, att=c(3,5:7,9,10), a_e_ratio = 0.2, k=d)
+write_graph(x,format = "graphml", file="Gg30sme.graphml")
+d=round(corrD(Gm30sm))
+x=grEmbed(Gm30sm, att=c(3,5:7,9,10), a_e_ratio = 0.2, k=d)
+write_graph(x,format = "graphml", file="Gm30sme.graphml")
 
 x=cbind(rowAnys(as.matrix(fl[,2:3])),rowAnys(as.matrix(fl[,4:5])))
 table(rowSums(x))
@@ -761,13 +772,15 @@ plot(mgcavenn, quantities = T)
 
 # The DEx clusters in IgG and IgM are anticorrelated - 1.4% peptides overlap
 # vs 5.8% for the whole mixed library.
+
 ### Dex graph fused -------
+
 GMreun=unique(GMreun)
 Ggmdex=induced.subgraph(G, GMreun)
 Ggmdexsm=clusterGraph(Ggmdex, resol=30)
 
 load("GGMdexpepnames9047")
-Ggmpeps=Gpeps
+Ggmpepsm=Gpeps
 Ggmdexsm=set.vertex.attribute(Ggmdexsm, name="size",value = sqrt(vertex_attr(Ggmdexsm)$size))
 
 grps=names(vertex_attr(Ggmdexsm)$Group[[1]])
@@ -777,30 +790,75 @@ gic=as.numeric(substr(grps,4,4))>0
 gia=as.numeric(substr(grps,5,5))>0
 dm=mic+mia
 dg=gic+gia
-dc=mic+gic
-da=mia+gia
+
 GgmdexsmCA=t(sapply(vertex_attr(Ggmdexsm)$Group, function(x){
   xm=as.data.frame(x)/dm
   cntrm=sum(x[mic])
   aplsm=sum(x[mia])
+  s=sum(x)
   xg=as.data.frame(x)/dg
   cntrg=sum(x[gic])
   aplsg=sum(x[gia])
-  return(c(cntrm, aplsm,cntrg, aplsg))
+  return(c(cntrm/s, aplsm/s,cntrg/s, aplsg/s))
 }))
 colnames(GgmdexsmCA)=c("Control_IgM","APLS_IgM","Control_IgG","APLS_IgG")
+
 GgmdexsmP=sapply(vertex_attr(Ggmdexsm)$Group, function(x){
   x=as.data.frame(x)
   n=rownames(x)
   j=as.numeric(substr(n,1,1))>0
-  return(sum(x[j,]))
+  return(sum(x[j,])/sum(x))
 })
-qq7Igmdex=sapply(Ggmpeps, function(l){
+
+load("qq7I")
+qq7Igmdex=sapply(Ggmpepsm, function(l){
   sum(qq7I[l]>0)/length(l)
 })
-Gbgdex=sapply(Ggmpeps, function(p){
+Gbgdex=sapply(Ggmpepsm, function(p){
   median(bkgNN[p])
 })
+
+dexgpeps=Gg30peps[Gg_good!=0]
+names(dexgpeps)=paste(names(dexgpeps),"g", sep="")
+dexmpeps=Gm30peps[Gm_good!=0]
+names(dexmpeps)=paste(names(dexmpeps),"m", sep="")
+ggood=Gg_good[Gg_good!=0]
+names(ggood)=names(dexgpeps)
+ggood[ggood==-1]="GC"
+ggood[ggood==1]="GA"
+mgood=Gm_good[Gm_good!=0]
+names(mgood)=names(dexmpeps)
+mgood[mgood==-1]="MC"
+mgood[mgood==1]="MA"
+x=melt(c(dexgpeps,dexmpeps))
+x[,2]=c(ggood,mgood)[x[,2]]
+x=aggregate(x[,2], by=list(x[,1]), function(y) paste(y, collapse=""))
+y=x[,2]
+names(y)=x[,1]
+goodgr=y
+table(goodgr)
+x=cbind(none=c(none=754608,GC=39780,GA=54816), MC=c(none=28929,GC=257,GA=1107), MA=c(none=16347,GC=562, GA=137))
+x=as.table(x)
+chisq.posthoc.test(x, simulate.p.value=T)
+x=cbind(MC=c(GC=257,GA=1107), MA=c(GC=562, GA=137))
+x=as.table(x)
+chisq.posthoc.test(x, simulate.p.value=T)
+
+GgmpepsmL=melt(Ggmpepsm)
+GgmpepsmL[,2]=goodgr[GgmpepsmL[,1]]
+y=GgmpepsmL[,2]
+names(y)=GgmpepsmL[,1]
+Goodgr=y
+t0=rep(0,8)
+names(t0)=names(table(Goodgr))
+Goodgr=t(sapply(Ggmpepsm, function(l){
+  t=table(Goodgr[l])
+  t0[names(t)]=t
+  return(t0/sum(t0))
+}))
+Goodgr=as.data.frame(Goodgr)
+
+# the gained and lost specificities in IgG and IgM are anti-correlated
 
 Ggmdexsm=set.vertex.attribute(Ggmdexsm, name="Control_IgM", value=GgmdexsmCA[,1])
 Ggmdexsm=set.vertex.attribute(Ggmdexsm, name="APLS_IgM", value=GgmdexsmCA[,2])
@@ -809,109 +867,169 @@ Ggmdexsm=set.vertex.attribute(Ggmdexsm, name="APLS_IgG", value=GgmdexsmCA[,4])
 Ggmdexsm=set.vertex.attribute(Ggmdexsm, name="Pub", value=GgmdexsmP)
 Ggmdexsm=set.vertex.attribute(Ggmdexsm, name="Id", value=qq7Igmdex)
 Ggmdexsm=set.vertex.attribute(Ggmdexsm, name="Bkg", value=Gbgdex)
+Ggmdexsm=set.vertex.attribute(Ggmdexsm, name="ggrMC", value=Goodgr$MC)
+Ggmdexsm=set.vertex.attribute(Ggmdexsm, name="ggrMA", value=Goodgr$MA)
+Ggmdexsm=set.vertex.attribute(Ggmdexsm, name="ggrGC", value=Goodgr$GC)
+Ggmdexsm=set.vertex.attribute(Ggmdexsm, name="ggrGA", value=Goodgr$GA)
+Ggmdexsm=set.vertex.attribute(Ggmdexsm, name="ggrGCMC", value=Goodgr$GCMC)
+Ggmdexsm=set.vertex.attribute(Ggmdexsm, name="ggrGCMA", value=Goodgr$GCMA)
+Ggmdexsm=set.vertex.attribute(Ggmdexsm, name="ggrGAMC", value=Goodgr$GAMC)
+Ggmdexsm=set.vertex.attribute(Ggmdexsm, name="ggrGAMA", value=Goodgr$GAMA)
 
-x=grEmbed(Ggmdexsm)
+x=grEmbed(Ggmdexsm, att=c(3,5:19), a_e_ratio = 0.2, k=45)
 
-write_graph(Ggmdexsm, format = "graphml", file="Ggmdexsm.graphml")
+write_graph(x, format = "graphml", file="Ggmdexsm.graphml")
 
-### Dex graph combined ----
-dexmpeps=Gm30peps[Gm_good!=0]
-dexmpeps=melt(dexmpeps)
-x=dexmpeps[,2]
-names(x)=dexmpeps[,1]
-dexmpeps=x
-dexgpeps=Gg30peps[Gg_good!=0]
-dexgpeps=melt(dexgpeps)
-x=dexgpeps[,2]
-names(x)=dexgpeps[,1]
-dexgpeps=x
-clnm=Gm_good[Gm_good!=0]
-names(clnm)=names(Gm30peps[Gm_good!=0])
-clnm[clnm==-1]="C"
-clnm[clnm==1]="A"
-clng=Gg_good[Gg_good!=0]
-names(clng)=names(Gg30peps[Gg_good!=0])
-clng[clng==-1]="C"
-clng[clng==1]="A"
-y=rep(0,length(GMreun))
-names(y)=GMreun
-y1=y
-y1[names(dexgpeps)]=dexgpeps
-y2=y
-y2[names(dexmpeps)]=dexmpeps
-x=aggregate(GMreun, by=list(y1,y2), "list")
-nms=paste("Cr",seq_along(x[,1]), sep="")
-reunpeps=x[,3]  
-names(reunpeps)=nms
-reungroup=apply(x[,1:2],1,function(l){
-  paste("G",clng[l[1]],"M",clnm[l[2]], sep="")
-})
+### Smaller Dex Graph ----
 
-GGMdex=induced.subgraph(G, GMreun)
-GGMdex=set.edge.attribute(GGMdex,name="weight", value=1)
+GMreun=unique(GMreun)
+Ggmdex=induced.subgraph(G, GMreun)
+Ggmdexsmsm=clusterGraph(Ggmdex, resol=4)
 
-v=melt(x[,3])
-x0=v[,2]
-names(x0)=v[,1]
-v=x0
-GGMdexsm=contract(GGMdex,mapping=v,vertex.attr.comb="ignore")
-GGMdexsm=simplify(GGMdexsm, edge.attr.comb = "sum")
-GMdexsmpeps=x[,3]
-GGMdexsm=set_vertex_attr(GGMdexsm, "edges", value=sapply(GMdexsmpeps,function(x){
-  g=induced_subgraph(G,x)
-  length(E(g))
+load("Gctrpeps")
+Ggmpepsmm=Gpeps
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="size",value = sqrt(vertex_attr(Ggmdexsmsm)$size))
+
+grps=names(vertex_attr(Ggmdexsmsm)$Group[[1]])
+mic=as.numeric(substr(grps,2,2))>0
+mia=as.numeric(substr(grps,3,3))>0
+gic=as.numeric(substr(grps,4,4))>0
+gia=as.numeric(substr(grps,5,5))>0
+dm=mic+mia
+dg=gic+gia
+
+GgmdexsmsmCA=t(sapply(vertex_attr(Ggmdexsmsm)$Group, function(x){
+  xm=as.data.frame(x)/dm
+  cntrm=sum(x[mic])
+  aplsm=sum(x[mia])
+  s=sum(x)
+  xg=as.data.frame(x)/dg
+  cntrg=sum(x[gic])
+  aplsg=sum(x[gia])
+  return(c(cntrm/s, aplsm/s,cntrg/s, aplsg/s))
 }))
-grdex=vertex.attributes(GGMdex)$Group
-names(grdex)=names(V(GGMdex))
-pub=sapply(GMdexsmpeps, function(p){
-  sum(substr(grdex[p],1,1)==1)/length(p)
+colnames(GgmdexsmsmCA)=c("Control_IgM","APLS_IgM","Control_IgG","APLS_IgG")
+
+GgmdexsmsmP=sapply(vertex_attr(Ggmdexsmsm)$Group, function(x){
+  x=as.data.frame(x)
+  n=rownames(x)
+  j=as.numeric(substr(n,1,1))>0
+  return(sum(x[j,])/sum(x))
 })
-id=sapply(GMdexsmpeps, function(p){
-  sum(qq7I[p])/length(p)
+
+qq7Igmdexsm=sapply(Ggmpepsmm, function(l){
+  sum(qq7I[l]>0)/length(l)
+})
+Gbgdexsm=sapply(Ggmpepsmm, function(p){
+  median(bkgNN[p])
 })
 
-GGMdexsm=set.vertex.attribute(GGMdexsm, name="size", value=lengths(GMdexsmpeps))
-GGMdexsm=set.vertex.attribute(GGMdexsm, name="group", value=reungroup)
-GGMdexsm=set.vertex.attribute(GGMdexsm, name="pub", value=pub)
-GGMdexsm=set.vertex.attribute(GGMdexsm, name="id", value=id)
+GgmpepsmmL=melt(Ggmpepsmm)
+GgmpepsmmL[,2]=goodgr[GgmpepsmmL[,1]]
+y=GgmpepsmmL[,2]
+names(y)=GgmpepsmmL[,1]
+Goodgrsm=y
+t0=rep(0,8)
+names(t0)=names(table(Goodgrsm))
+Goodgrsm=t(sapply(Ggmpepsmm, function(l){
+  t=table(Goodgrsm[l])
+  t0[names(t)]=t
+  return(t0/sum(t0))
+}))
+Goodgrsm=as.data.frame(Goodgrsm)
 
-n=length(V(GGMdexsm))
-A=matrix(0,n,n)
-rownames(A)=names(V(GGMdexsm))
-colnames(A)=names(V(GGMdexsm))
-eG=apply(ends(GGMdexsm, E(GGMdexsm), E(GGMdexsm)),2,unlist) # matrix of edge ends
-w=edge.attributes(GGMdexsm)$weight                  # number of edges between clusters
-A[eG]=w                                         # adjacency mx of clusters
-A=t(A)
-A[eG]=w
-Ein=vertex_attr(GGMdexsm)$edges                     # number of edges in each cluster
-S=vertex_attr(GGMdexsm)$size                        # number of vertices in each cluster
-ex=(Ein)/(S*(S-1)/2+1*(S==1))
-ex=matrix(rep(ex,n),n,n)
-m=(ex + t(ex))/2                                # mean density
-w=(S%*%t(S))*m/(A+1*(A==0))                     # expected no of edges between/ actual
-rownames(w)=names(V(GGMdexsm))                      # w is a dissimilarity measure
-colnames(w)=names(V(GGMdexsm))
-w=w[eG]
+# the gained and lost specificities in IgG and IgM are anti-correlated
 
-w=log10(w+min(w[w>0])*(w==0)) 
-x=w[order(w)]
-x=x[length(x)]-x[length(x)-1]
-w=w-min(w)+x/2
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="Control_IgM", value=GgmdexsmsmCA[,1])
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="APLS_IgM", value=GgmdexsmsmCA[,2])
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="Control_IgG", value=GgmdexsmsmCA[,3])
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="APLS_IgG", value=GgmdexsmsmCA[,4])
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="Pub", value=GgmdexsmsmP)
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="Id", value=qq7Igmdexsm)
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="Bkg", value=Gbgdexsm)
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrMC", value=Goodgrsm$MC)
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrMA", value=Goodgrsm$MA)
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrGC", value=Goodgrsm$GC)
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrGA", value=Goodgrsm$GA)
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrGCMC", value=Goodgrsm$GCMC)
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrGCMA", value=Goodgrsm$GCMA)
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrGAMC", value=Goodgrsm$GAMC)
+Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrGAMA", value=Goodgrsm$GAMA)
 
-GGMdexsm=set.edge.attribute(GGMdexsm, name="weight", value=w)
+k=round(corrD(Ggmdexsmsm))
+x=grEmbed(Ggmdexsmsm, att=c(3,9:19), a_e_ratio = 5e-4, k=k)
+x=set.edge.attribute(x, name="weight", value=1/edge_attr(x)$weight)
+write_graph(x, format = "graphml", file="Ggmdexsmsm.graphml")
 
-x=mst(GGMdexsm)
-thr=max(E(x)$weight)
-GGMdexsm=delete.edges(GGMdexsm,E(GGMdexsm)[E(GGMdexsm)$weight>thr])
-x=edge_attr(GGMdexsm)$weight               # convert weights from dissimilarity to similarity
-x=scale(1/x, center=F)
-GGMdexsm=set.edge.attribute(GGMdexsm,"weight", value=x)
+logos64smsm=lapply(Ggmpepsmm,ggseqlogo)
+save(logos64smsm,file="logosG24smsm") 
 
-write_graph(GGMdexsm, format = "graphml", file="GGM_dexsm.graphml")
+#### Line graphs of the clusters -----
+
+load("G")
+
+lGdexs=lapply(seq_along(Ggmpepsmm), function(i){
+  print(i)
+  gi=induced.subgraph(G, Ggmpepsmm[[i]])
+  es=ends(gi, E(gi))
+  lcss=apply(es,1, function(pij){
+    paste(LCS(as.character(unlist(strsplit(pij[1],split=""))),
+              as.character(unlist(strsplit(pij[2],split=""))))$LCS, collapse="")
+  })
+  lgi=make_line_graph(gi)
+  lgi=set_vertex_attr(lgi, name="name", value=lcss)
+  lgi=set_vertex_attr(lgi, name="N", value=1)
+  lgi=set_edge_attr(lgi, name="weight", value=1)
+  lgi=contract(lgi,as.numeric(as.factor(vertex_attr(lgi)$name)), vertex.attr.comb = list(N ="sum", name="first"))
+  lgi=simplify(lgi, edge.attr.comb = function(x) scale(1/sum(x),center=F))
+  return(lgi)
+})
+
+names(lGdexs)=paste("n", 0:(length(Ggmpepsmm)-1), sep="")
+pdf(file="lGcl64.pdf", w=30, height = 30)
+for (i in seq_along(lGdexs)) {
+  plot(lGdexs[[i]], vertex.size=log10(vertex_attr(lGdexs[[i]])$N+0.5), edeg.width=edge_attr(lGdexs[[1]])$weight, vertex.label.cex=0.3, main=names(lGdexs)[i])
+}
+dev.off()
+
+smsmLcs=lapply(lGdexs,function(g){
+  x=names(V(g))
+  n=vertex_attr(g)$N
+  x=data.frame(LCS=x,N=n)
+  x=x[order(x$N,decreasing = T),]
+})
+names(smsmLcs)=names(lGdexs)
+
+load("G")
+dG=degree(G)
+chosenpep=lapply(seq_along(lGdexs), function(i){
+  print(i)
+  g=lGdexs[[i]]
+  lcs=smsmLcs[[i]]
+  cl=cluster_louvain(g)$memberships
+  cl=cl[nrow(cl),]
+  ns=aggregate(smsmLcs[[i]]$N, by=list(cl), "sum")[,2]
+  centralcs=sapply(1:max(cl), function(ci){
+    gi=induced.subgraph(g,V(g)[cl==ci])
+    ei=eigen_centrality(gi)$vector
+    names(which.max(ei))
+  })
+  pp=sapply(centralcs,function(l){
+    d=stringdist(l,Ggmpepsmm[[i]], method = "lcs")
+    p=Ggmpepsmm[[i]][d<3]
+    #p[which.max(dG[p])]
+    return(p)
+  })
+  return(unique(unlist(c(pp))))
+})
+
+chspp=unique(unlist(chosenpep))
+
+
 # Modularity scan =====
 
 load("Gg")
+
 cl=makeCluster(3)
 clusterExport(cl, "Gg")
 clusterEvalQ(cl, require(igraph))
