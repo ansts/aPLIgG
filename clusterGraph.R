@@ -71,7 +71,7 @@ clusterGraph <- function(G, resol=30, fnm=NULL, nodes=14) {
   A[eG]=w
   Ein=vertex_attr(Gctr)$edges                     # number of edges in each cluster
   S=vertex_attr(Gctr)$size                        # number of vertices in each cluster
-  ex=(Ein)/(S*(S-1)/2+1*(S==1))
+  ex=(Ein+1*(S==1))/(S*(S-1)/2+1*(S==1))
   ex=matrix(rep(ex,n),n,n)
   m=(ex + t(ex))/2                                # mean density
   w=(S%*%t(S))*m/(A+1*(A==0))                     # expected no of edges between/ actual
