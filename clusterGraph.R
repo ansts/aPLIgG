@@ -10,7 +10,7 @@
 # and returns the cluster graph as an igraph object. Size is
 # the size of the clusters in the initial graph.
 
-clusterGraph <- function(G, resol=30, fnm=NULL, nodes=14) {
+clusterGraph <- function(G, resol=1, fnm=NULL, nodes=14) {
   require(igraph)
   require(parallel)
   require(pbapply)
@@ -26,20 +26,20 @@ clusterGraph <- function(G, resol=30, fnm=NULL, nodes=14) {
   
   if (is.null(fnm)) fnm=round(runif(1,1,1e4),0)
   print("Leiden clustering.........")
-  Glouv=cluster_leiden(G, objective_function = "modularity", resolution_parameter = resol, n_iterations = 5)
-  n=Glouv$names
-  #d=nrow(Glouv$memberships)
+  Gleiden=cluster_leiden(G, objective_function = "modularity", resolution_parameter = resol, n_iterations = 5)
+  n=Gleiden$names
+  #d=nrow(Gleiden$memberships)
   #if (d>1) d=d-1
-  Glouv=Glouv$membership
-  names(Glouv)=n
-  print(paste(c(max(Glouv)," clusters and " ,sum(table(Glouv)==1), " singlets"), sep="", collapse=""))
-  save(Glouv,file=paste("Glouv",fnm,sep="")) 
+  Gleiden=Gleiden$membership
+  names(Gleiden)=n
+  print(paste(c(max(Gleiden)," clusters and " ,sum(table(Gleiden)==1), " singlets"), sep="", collapse=""))
+  save(Gleiden,file=paste("Gleiden",fnm,sep="")) 
   Grpsall=table(V(G)$Group)  
   gnm=names(Grpsall)
   x0=rep(0,length(gnm))
   names(x0)=gnm
   print("Contraction.........")
-  Gctr=contract(G,mapping=Glouv,vertex.attr.comb=list(name="concat", Group=function(x) {
+  Gctr=contract(G,mapping=Gleiden,vertex.attr.comb=list(name="concat", Group=function(x) {
     x3=table(x)
     x0[names(x3)]=x3
     return(x0)
@@ -48,9 +48,8 @@ clusterGraph <- function(G, resol=30, fnm=NULL, nodes=14) {
   clnm=paste("C",seq_along(V(Gctr)), sep="")
   Gpeps=vertex_attr(Gctr)$name
   names(Gpeps)=clnm
-
+  Gctr=delete_vertex_attr(Gctr, "name")
   Gctr=set_vertex_attr(Gctr, "name", value=clnm)
-  vertex_attr(Gctr)$name=unlist(vertex_attr(Gctr)$name)
   Gctr=set_vertex_attr(Gctr, "size", value=lengths(Gpeps))
   Gctr=set_vertex_attr(Gctr, "edges", value=sapply(Gpeps,function(x){
     g=induced_subgraph(G,x)
@@ -90,8 +89,9 @@ clusterGraph <- function(G, resol=30, fnm=NULL, nodes=14) {
   
   print("Prune large distances ...")
   thrng=range(edge.attributes(Gctr)$weight)
-  n=length(V(Gctr))
-  thrscan=t(sapply(seq(thrng[1],thrng[2],length.out=200), function(th){
+  n=vcount(Gctr)
+  if (ecount(Gctr)>200) seqthr=seq(thrng[1],thrng[2],length.out=200) else seqthr=sort(edge.attributes(Gctr)$weight)
+  thrscan=t(sapply(seqthr, function(th){
     Gctrsm=delete.edges(Gctr,E(Gctr)[E(Gctr)$weight>th])
     cmp=components(Gctrsm)
     c(th,cmp$no,sum(cmp$csize<5), graph.density(Gctrsm))
