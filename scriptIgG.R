@@ -1,5 +1,4 @@
 require(parallel)
-require(future.apply)
 require(igraph)
 require(reshape2)
 require(stringdist)
@@ -17,10 +16,10 @@ require(MASS)
 require(multcomp)
 require(smallstuff)
 require(pbapply)
-
 require(infotheo)
 require(rsetse)
 require(R.utils)
+require(future.apply)
 options(future.globals.maxSize= 10^10)
 
 source("clusterGraph.R")
@@ -31,7 +30,7 @@ source("adjL2Glite.R")
 # Data Acquisition and Cleaning ----------------------------------------------
 
 cpl3=colorRampPalette(c("#AFAFAF0A","#FF0FFF0A","#00FFF00A"))
-cpl1=colorRampPalette(c("#0000FF80","#00FF0080","#FFFF0080","#FF000080"))
+cpl1=colorRampPalette(c("#0000FFFF","#00FF00FF","#FFFF00FF","#FF0000FF"), alpha=T)
 aa=AA_ALPHABET[1:20]
 load("mixIgM")
 load("flIgM")
@@ -135,7 +134,7 @@ sink()
 write.csv(tbl,file="venn_table_raw.csv")
 
 # The Graph ---------------------------------------------------------------
-
+## Construction -----
 
 load("mixnew")
 load("flnew")
@@ -190,421 +189,83 @@ fl[loners,]
 load("G")
 G=induced_subgraph(G, components(G)$membership==1)
 
-dG=degree(G)
-ccG=transitivity(G, "localundirected")
 es=ends(G,E(G))
-lcsG=future_apply(es,1,function(eg) {
+
+cl=makeCluster(16)
+clusterEvalQ(cl, require(qualV))
+lcsG=pbapply(es,1,function(eg) {
   eg=strsplit(eg,split="")
-  paste(LCS(eg[[1]],eg[[2]])$LCS, collapse="")
-})
-G=set_edge_attr(G, name="LCS",value=lcsG)
-save(G,file="Ggiant")
-
-cliqhom=lapply(seq(20,80,15), function(i){
-    print(i)
-    load("Ggiant")
-    g=cluster_leiden(G, objective_function = "modularity", resolution_parameter = i)
-    g=g$membership
-    Gi=get_subgraphs(G, g)
-    print(paste("# clusters=",length(Gi), collapse=""))
-    G=NULL
-    rm(G,g)
-    gc()
-    cl=makeCluster(10)
-    clusterEvalQ(cl, require(igraph))
-    X=pbsapply(Gi, function(g0){
-      mcl=lapply(max_cliques(g0,min=4),names)
-      mean(sapply(mcl, function(cli) {
-          x=table(edge_attr(induced_subgraph(g0,cli))$LCS)
-          length(x[x>2])
-        }))
-    },cl=cl)
-    stopCluster(cl)
-    print(X)
-    return(X)
-})
-
-
-G80=clusterGraph(G, resol=80)
-load("Gctrpeps")
-G80peps=Gpeps
-save(G80peps, file="G80peps")
-rm(G)
-
-Groupsall=table(V(G)$Group)  
-gnm=names(Groupsall)
-x0=rep(0,length(gnm))
-names(x0)=gnm
-propG24=aggregate(Gl24, by=list(Gl24), function(x){
-  i=Gl24==unique(x)
-  x1=length(x)
-  g=induced_subgraph(G,i)
-  x2=length(E(g))
-  x3=table(V(G)$Group[i])
-  x0[names(x3)]=x3
-  c(Size=x1,Edges=x2,x0)
-})
-propG24=propG24[,-1]
-save(propG24,file="propG24")
-chisq.posthoc.test(propG24[,-c(1,2)])
-
-x=propG24[,-c(1,2)]
-xnm=substr(colnames(x),2,5)
-xrn=seq_along(x[,1])
-y0=rep(0,length(xnm)/2)
-names(y0)=xnm[1:(length(xnm)/2)]
-x=t(apply(x,1,function(l){
-  y=aggregate(l, by=list(xnm), "sum")
-  y0[y[,1]]=y[,2]
-  return(y0)
-}))
-rownames(x)=xrn
-x=as.table(x)
-x=chisq.posthoc.test(as.table(x), simulate.p.value=T)
-px=x[(1:(nrow(x)/2))*2,3:17]
-rownames(px)=seq_along(rownames(px))
-ex=x[(1:(nrow(x)/2))*2-1,3:17]
-rownames(ex)=seq_along(rownames(ex))
-pxgood=apply(px, 1,function(l) any(l<0.05))
-sigcl=cbind(Eff=ex[pxgood,],P=px[pxgood,])
-sigclnm=rownames(sigcl)
-
-x=propG24[,-c(1,2)]
-x=t(apply(x,1,function(l){
-  y1=sum(l[1:15])
-  y2=sum(l[16:30])
-  return(c(y1,y2))
-}))
-x=as.table(x)
-pubchsq=chisq.posthoc.test(x, simulate.p.value=T)
-ppub=pubchsq[(1:(nrow(pubchsq)/2))*2,4]
-names(ppub)=seq_along(ppub)
-epub=pubchsq[(1:(nrow(pubchsq)/2))*2-1,4]
-names(epub)=seq_along(epub)
-pubsig=epub[which(ppub<0.05)]
-pubsig=intersect(pubsig, as.numeric(sigclnm))
-hilit=which(px[pxgood,]<0.05, arr.ind=T)
-hilit=data.frame(hilit,rep(1, nrow(hilit)))
-pdf(file="hmsigcl.pdf", width=20,height = 20)
-hmsigcl=heatmap3(sigcl[,1:15], method = "ward.D2", col=cpl1(1000), cexRow = 0.5, highlightCell = hilit)
-dev.off()
-
-NBcl=c(350,248,246,1809,351,91,1766,1027,915,481,387,372,318,477,486,1886,400,
-       1808,497,1794,485,219,483,521,355,480,1799,1798,2212,1028,1797,1813,
-       1566,348,523,1796,1561,479,460,1800,365,220,1810,1707,364,361,50,599,
-       1801,819,3,10,1404,450,636,1339,1349,532,1579,2064,187,1344,491,817,2293,
-       310,527,1555,1852,296,1460,1729,1728,881,530,1290,2346,590,188,508,426,
-       329,288,290,591,1834,723,284,2087,178,1348,223,271,1730,1440,1531,582,
-       392,1842,515,1750,1772,2221,1308,467,101,1340,1546,249,1582,1713,
-       1841,275,1450,339,1732,1469,1319,1457,593,577,445,571,572)
-ip=apply(px[pxgood,],1,function(l) colnames(px)[l<0.05])
-sigcl1=lapply(seq_along(ip), function(i) {
-  x=ex[pxgood,][i, ip[[i]]]
-  n=ip[[i]]
-  names(x)=n
-  return(x)
-}) 
-t0=c(0,0)
-names(t0)=c(-1,1)
-syngcl=aggregate(unlist(sigcl1), by=list(names(unlist(sigcl1))), function(x) {
-  t1=table(sign(x))
-  t0[names(t1)]=t1
-  return(t0)
-})
-
-attrG=array(0,dim=c(nrow(propG24),30))
-colnames(attrG)=colnames(ex)
-for (rn in rownames(sigcl)){
-  print(rn)
-  j=sigcl[rn,31:60]<0.05
-  attrG[as.numeric(rn),]=as.numeric(sign(sigcl[,1:30][rn,]*j))
-}
-save(attrG,file="attrG")
-
-for (j in 1:ncol(attrG)){
-  G24=set.vertex.attribute(G24, name=colnames(attrG)[j], value=attrG[,j])
-}
-
-ij=cut(seq_along(E(G24)),140,labels=F)
-
-cl=makeCluster(14)
-clusterExport(cl, c("G24","propG24","ij"))
-clusterEvalQ(cl, require(igraph))
-
-x=pbsapply(1:140, function(j){ # using a log(1/estimate) of the modularity as a dissimilarity measure
-  sapply(seq_along(E(G24))[ij==j], function(i){
-    es=ends(G24,i)            # indices of incident vertices
-    ebtw=E(G24)$weight[i]     # number of between edges (weight of edge after contraction)
-    s=propG24[es[1,],1]       # sizes of the two respective clusters in G
-    allein=sum(c(propG24[es[1,],2])) # No of edges inside both clusters
-    pein=allein/(s[1]*(s[1]-1)/2+s[2]*(s[2]-1)/2) # graph density inside clusters
-    pebtw=ebtw/prod(s)        # edge density between clusters 
-    log10(pein/pebtw)        #  log of the ratio of within/between edge density
-  })
-},cl=cl)
-  
-stopCluster(cl)
-
-w=x[[1]]
-for (i in 2:140){
-  w=c(w,x[[i]])
-}
-x=w[order(w)]
-x=x[length(x)]-x[length(x)-1]
-w=w-min(w)+x/2
-
-G24=set.edge.attribute(G24, name="weight", value=w)
-save(G24,file="G24")
-
-propG24[components(G24)$membership>1,]
-
-
-x=mst(G24)
-thr=range(E(x)$weight)
-cl=makeCluster(14)
-clusterExport(cl,c("G24"))
-clusterEvalQ(cl, require(igraph))
-edgewscan=t(pbsapply(seq(0,2.5,by=0.001), function(th){
-  X=delete.edges(G24,E(G24)[E(G24)$weight>th])
-  X=components(X)
-  x=length(E(delete_edges(G24, E(G24)[E(G24)$weight>th])))
-  mxCs=max(X$csize)
-  c(Thr=th,ENo=x, Ncomp=X$no, Giant=mxCs)
-}, cl=cl))
-stopCluster(cl)
-plot(as.data.frame(edgewscan), pch=16,cex=0.1)
-plot(scale(edgewscan[,2])*scale(edgewscan[,3]), ty="l")
-j=(scale(edgewscan[,2])*scale(edgewscan[,3]))
-plot(j)
-j=which.max(j)
-edgewscan[j,]
-# select the threshold optimizing between edge No. and components No
-G24sm=delete.edges(G24,E(G24)[E(G24)$weight>1.214])
-G24sm=set.vertex.attribute(G24sm,name = "Size", value=propG24[,1])
-louvG24sm=cluster_louvain(G24sm)
-lvG24sm=louvG24sm$memberships[1,]
-G24sm=set.vertex.attribute(G24sm,name = "Louv", value=lvG24sm)
-write.graph(G24, format="graphml", file = "G24.graphml")
-write.graph(G24sm, format="graphml", file = "G24sm.graphml")
-save(G24sm, file="G24sm")
-save(edgewscan,file="edgewscan")
-
-
-# Smooth Property Mapping -------------------------------------------------
-
-load("propG24")
-x=as.data.frame(propG24)
-xG=(x$`00001`+x$`00010`+x$`00011`+x$`00101`/2+x$`00110`/2+x$`00111`/2+
-           x$`01001`/2+x$`01010`/2+x$`01011`/2+x$`01101`/2+x$`01110`/2+
-           x$`01111`/2+x$`10001`+x$`10010`+x$`10011`+x$`10101`/2+x$`10110`/2+
-           x$`10111`/2+x$`11001`/2+x$`11010`/2+x$`11011`/2+x$`11101`/2+
-           x$`11110`/2+x$`11111`/2)
-xM=(x$`00100`+x$`01000`+x$`01100`+x$`00101`/2+x$`00110`/2+x$`00111`/2+
-      x$`01001`/2+x$`01010`/2+x$`01011`/2+x$`01101`/2+x$`01110`/2+
-      x$`01111`/2+x$`10100`+x$`11000`+x$`11100`+x$`10101`/2+x$`10110`/2+
-      x$`10111`/2+x$`11001`/2+x$`11010`/2+x$`11011`/2+x$`11101`/2+
-      x$`11110`/2+x$`11111`/2)
-xD=(x$`00001`+x$`00100`+x$`00011`/2+x$`00101`+x$`00110`/2+2*x$`00111`/3+
-      x$`01100`/2+ x$`01001`/2+x$`01011`/3+2*x$`01101`/3+x$`01110`/3+
-      x$`01111`/2+x$`10001`+x$`10011`/2+x$`10100`+x$`10101`+x$`11100`/2+x$`10110`/2+
-      2*x$`10111`/3+x$`11001`/2+x$`11011`/3+2*x$`11101`/3+
-      x$`11110`/3+x$`11111`/2)
-xC=(x$`00010`+x$`01000`+x$`00011`/2+x$`01010`+x$`00110`/2+x$`00111`/3+
-      x$`01100`/2+ x$`01001`/2+2*x$`01011`/3+x$`01101`/3+2*x$`01110`/3+
-      x$`01111`/2+x$`10010`+x$`10011`/2+x$`11000`+x$`10101`+x$`11100`/2+x$`10110`/2+
-      x$`10111`/3+x$`11001`/2+2*x$`11011`/3+x$`11101`/3+
-      2*x$`11110`/3+x$`11111`/2)
-xP=(x$`10001`+x$`10010`+x$`10011`+x$`11000`+x$`10100`++x$`10101`+
-    x$`11100`+x$`10110`+x$`10111`+x$`11001`+x$`11010`++x$`11011`+x$`11101`+
-      x$`11110`+x$`11111`)
-
-propG24GMCD=cbind(xG,xM,xC,xD,xP)
-z=sweep(propG24GMCD, 1, rowSums(propG24GMCD), "/")
-z=t(apply(z,2,function(zx) {
-  attributes(zx)=NULL
-  return(zx)
-}))
-
-xGC=(x$`00010`+  x$`00011`+  x$`00110`/2+x$`00111`/2+x$`01010`/2+x$`01011`/2+
-     x$`01110`/2+x$`01111`/2+x$`10010`  +x$`10011`  +x$`10110`/2+
-     x$`10111`/2+x$`11010`/2+x$`11011`/2+x$`11110`/2+x$`11111`/2)
-xGA=(x$`00001`+  x$`00011`+  x$`00101`/2+x$`00111`/2+x$`01001`/2+x$`01011`/2+
-     x$`01101`/2+x$`01111`/2+x$`10001`+  x$`10011`+  x$`10101`/2+
-     x$`10111`/2+x$`11001`/2+x$`11011`/2+x$`11101`/2+x$`11111`/2)
-xMC=(x$`01000`+  x$`01100`+  x$`01001`/2+x$`01010`/2+x$`01011`/2+x$`01101`/2+
-     x$`01110`/2+x$`01111`/2+x$`11000`  +x$`11100`+  x$`11001`/2+
-     x$`11010`/2+x$`11011`/2+x$`11101`/2+x$`11110`/2+x$`11111`/2)
-xMA=(x$`00100`+  x$`01100`+  x$`00101`/2+x$`00110`/2+x$`00111`/2+x$`01101`/2+
-     x$`01110`/2+x$`01111`/2+x$`10100`  +x$`11100`+  x$`10101`/2+
-     x$`10110`/2+x$`10111`/2+x$`11101`/2+x$`11110`/2+x$`11111`/2)
-propG24GcMd=cbind(xGC,xGA,xMC,xMA,xP)
-z=sweep(propG24GcMd, 1, x$Size, "/")
-
-colnames(z)=colnames(propG24GcMd)
-uprGcMd=umap(z,n_neighbors = 50, verbose = T )
-
-sz=2*(propG24[,1]-min(propG24[,1]))/diff(range(propG24[,1]))+0.5
-plot(uprGcMd, pch=16, cex=sz, col=rgb(recol(z[,1]),recol(z[,2]),recol(z[,5]),0.75), main="IgG Contr vs APL / Public")
-plot(uprGcMd, pch=16, cex=sz, col=rgb(recol(z[,4]),recol(z[,3]),recol(z[,5]),0.75), main="IgM Contr vs APL / Public")
-plot(uprGcMd, pch=16, cex=sz, col=rgb(recol(z[,4]),recol(z[,3]),recol(z[,1]),recol(z[,2])), main="IgM vs IgG / Contr vs APL")
-plot(uprGcMd, pch=16, cex=sz, col=rgb(0,0,0,recol(xP)))
-
-minz=min(z[z>0])/2
-z1=apply(z,2,function(x){
-  x=log10(x+minz)
-  (x-min(x))/(diff(range(x))+0.02)
-})
-
-
-G24sm=set.vertex.attribute(G24sm,name = "IgM", value=z1[,2])
-G24sm=set.vertex.attribute(G24sm,name = "Cntr", value=z1[,3])
-G24sm=set.vertex.attribute(G24sm,name = "APL", value=z1[,4])
-G24sm=set.vertex.attribute(G24sm,name = "Pub", value=z1[,5])
-write.graph(G24sm, format="graphml", file = "G24sm.graphml")
-
-# Logos of Gl24 -----------------------------------------------------------
-
-seqs24=aggregate(names(V(G)), by=list(Gl24), "list")
-x=seqs24$Group.1
-seqs24=seqs24$x
-names(seqs24)=x
-logosG24=lapply(seqs24,ggseqlogo)
-save(logosG24,file="LOGOSG24") 
-
-xlv=V(G24sm)$Louv
-x=sapply(seq_along(xlv), function(i) {
-  cbind(Seq=unlist(seqs24[[i]]), Lvcl=xlv[i])
-})
-x0=x[[1]]
-for (i in 2:length(x)) x0=rbind(x0,x[[i]]) 
-seqs24lv=aggregate(x0[,1], by=list(x0[,2]), list)
-x=seqs24lv$Group.1
-seqs24lv=seqs24lv$x
-names(seqs24lv)=x
-logosG24lv=lapply(seqs24lv,ggseqlogo)
-save(logosG24lv,file="LOGOSG24lv")  
-
-print(logosG24lv[lengths(seqs24lv)>10000])
-
-# Map Idiotypes -----------------------------------------------------------
-
-load("IgJT")
-vG=names(V(G))
-
-# As qgrams - only complete 7-mers
-qq7I=t(qgrams(vG,IgJtrim,q=7))
-qq7I=qq7I[vG,2]
-save(qq7I,file="qq7I")
-
-x=aggregate(qq7I, by=list(Gl24), "mean")
-q7_24=x$x
-G24sm=set.vertex.attribute(G24sm,name = "Mean_q7I", value=q7_24)
-write.graph(G24sm, format="graphml", file = "G24sm.graphml")
-
-
-# Using the same LCS conditions as for the rest of the graph
-L=seq_along(vG)
-q7=colnames(qgrams(IgJtrim,q=7))
-ij=cut(L,1400, labels=F)
-cl=makeCluster(14)
-clusterExport(cl, c("q7","vG","ij"))
-clusterEvalQ(cl, require(stringdist))
-LcsI5=pbsapply(1:1400, function(i){
-  j=ij==i
-  sapply(vG[j], function(p){
-    x=stringdist(p,q7,method="lcs",nthread = 1)
-    sum(x<5)
-  })
+  res=paste(LCS(eg[[1]],eg[[2]])$LCS, collapse="")
+  return(res)
 }, cl=cl)
 stopCluster(cl)
-save(LcsI5,file="LcsI5")
 
-x=LcsI5[[1]]
-for (i in 2:length(LcsI5)) x=c(x,LcsI5[[i]])
-LcsI5=x
-LcsI5_24=aggregate(LcsI5, by=list(Gl24), function(l) mean(log10(l+0.5)))
-LcsI5_24=LcsI5_24$x
-hist(LcsI5_24)
+G=set_edge_attr(G, name="LCS",value=lcsG)
 
-save(LcsI5_24,file="LcsI5_24")
+dG=degree(G)
+ccG=transitivity(G, "localundirected")
+ecG=eigen_centrality(G)
 
-G24sm=set.vertex.attribute(G24sm,name = "LcsI5_24", value=LcsI5_24)
-write.graph(G24sm, format="graphml", file = "G24sm.graphml")
+save(G,file="Ggiant")
 
+## Cluster -----
 
-# All features embedding ---------------------------------------------------
-
-x=mst(G24)
-thr=max(E(x)$weight)
-G24smcon=delete.edges(G24,E(G24)[E(G24)$weight>thr])
-
-
-for (n in vertex_attr_names(G24smcon)) G24smcon=delete_vertex_attr(G24smcon, n)
-G24smcon=set.vertex.attribute(G24smcon,name = "IgG-C", value=z1[,1])
-G24smcon=set.vertex.attribute(G24smcon,name = "IgG-A", value=z1[,2])
-G24smcon=set.vertex.attribute(G24smcon,name = "IgM-C", value=z1[,3])
-G24smcon=set.vertex.attribute(G24smcon,name = "IgM-A", value=z1[,4])
-#G24smcon=set.vertex.attribute(G24smcon,name = "IgMvG", value=log10((z1[,3]+z1[,4]+0.2)/(z1[,1]+z1[,2]+0.2)))
-#G24smcon=set.vertex.attribute(G24smcon,name = "CvA", value=log10((z1[,1]+z1[,3]+0.2)/(z1[,2]+z1[,4]+0.2)))
-G24smcon=set.vertex.attribute(G24smcon,name = "Pub", value=z1[,5])
-G24smcon=set.vertex.attribute(G24smcon,name = "Size", value=propG24[,1])
-G24smcon=set.vertex.attribute(G24smcon,name = "Louv", value=lvG24sm)
-G24smcon=set.vertex.attribute(G24smcon,name = "Mean_q7I", value=recol(q7_24))
-
-G24smcon=remove_small_components(G24smcon)
-AjM24sm=distances(G24smcon, to=V(G24smcon))
-selfembG24=cmdscale(AjM24sm,k=58)
-x=as.matrix(as.data.frame(vertex_attr(G24smcon)))
-x[,6]=recol(x[,6])
-x=x[,-7]
-#corx=cor(selfembG24,x)
-
-#uattr=umap(x, n_neighbors = 50, verbose = T)
-#uself=umap(selfembG24,n_neighbors = 50, verbose = T)
-
-mx=cbind(x,selfembG24/4)
-#mx=scale(mx)
-uall=umap(mx,n_neighbors = 50, verbose = T)
-
-G24smcon=set.vertex.attribute(G24smcon, name="x",value=uall[,1])
-G24smcon=set.vertex.attribute(G24smcon, name="y",value=uall[,2])
-
-plot(G24smcon, vertex.label=NULL, vertex.size=0.2)
-save(G24smcon, file="G24smcon")
-
-write.graph(G24smcon, format="graphml", file="G24smcon.graphml")
-
-# Separate IgG and IgM Graphs ---------------------------------------------
-
-load("G")
-grps=unique(vertex_attr(G)$Group)
-gig=as.numeric(substr(grps,4,5))>0
-gim=as.numeric(substr(grps,2,3))>0
-ig=vertex_attr(G)$Group %in% grps[gig]
-im=vertex_attr(G)$Group %in% grps[gim]
-
-Gg=induced.subgraph(G,ig)
-Gm=induced.subgraph(G,im)
-save(Gg, file="Ggw")
-save(Gm, file="Gmw")
-
-load("Ggw")
-Gg=set_edge_attr(Gg,"weight",value=1)
-Gg50sm=clusterGraph(Gg, resol=50)
+load("Ggiant")
+G70=clusterGraph(G, resol=70)
 load("Gctrpeps")
-Gg50peps=Gpeps
-save(Gg50peps, file="Gg50peps")
-rm(Gg)
-load("Gmw")
-Gm=set_edge_attr(Gm,"weight",value=1)
-Gm50sm=clusterGraph(Gm, resol=50)
-load("Gctrpeps")
-Gm50peps=Gpeps
-save(Gm50peps, file="Gm50peps")
-rm(Gg)
-#Gg1s m=clusterGraph(Gg, resol = 1)
+G70peps=Gpeps
+save(G70peps, file="G70peps")
+save(G70, file="G70")
+G=NULL
+rm(G)
 
-### Background frequencies ------------
+## Map Idiotypes -----------------------------------------------------------
+
+load("IgJT")
+v=names(dG)
+# As qgrams - only complete 7-mers
+qq7I=t(qgrams(v,IgJtrim,q=7))
+qq7I=qq7I[v,2]
+save(qq7I,file="qq7I")
+
+## Add attributes ------
+
+G70gr=t(sapply(vertex_attr(G70)$Group, unlist))
+rownames(G70gr)=vertex_attr(G70)$name
+
+n=names(dG)
+A=cbind(fls[n,],bkgNN[n],qq7I[n])
+colnames(A)[6:7]=c("Bkg","Id")
+cl=makeCluster(14)
+clusterExport(cl,"A")
+AttrG=t(pbsapply(G70peps, function(x) colSums(A[x,]), cl=cl))
+stopCluster(cl)
+AttrG[,1:6]=scale(sweep(AttrG[,1:6],1,lengths(G70peps),"/"))
+
+vertex_attr(G70)=cbind(as.data.frame(vertex_attr(G70)[2:4]),as.data.frame(AttrG))
+
+## Stats ----
+
+X=G70gr[,1:15]+G70gr[,16:30]
+X[,7]=rowSums(X[,c(7,11,13:15)])
+X=X[,-c(11,13:15)]
+
+chsqX=chisq.posthoc.test(X, simulate.p.value = T)
+j2=(1:(nrow(chsqX)/2))*2
+j1=j2-1
+G_good=(chsqX[j2,3:13]<0.05)*sign(chsqX[j1,3:13])
+rownames(G_good)=chsqX$Dimension[j2]
+
+for (n in colnames(G_good)) G70=set.vertex.attribute(G70,name=n,value=as.data.frame(G_good)[,n])
+
+## Logos of Clusters -----------------------------------------------------------
+
+logosG70=lapply(G70peps,ggseqlogo)
+save(logosG70,file="LOGOSG70") 
+
+for (i in 1:100) print(logosG70[[i]])
+
+# Background frequencies ------------
 
 load("matpep")
 matpep=sample(matpep, length(V(Gg)))
@@ -648,421 +309,92 @@ bkgNN=pbsapply(1:1600, function(i) {
   })
 },cl=cl)
 stopCluster(cl)
-theorNN=(choose(7,5)*19^2+6*19)*length(matpep)/(20^7)
 
-load("Gmw")
-bkgNNm=bkgNN[names(V(Gm))]
-rm(Gm)
-load("Ggw")
-bkgNNg=bkgNN[names(V(Gg))]
-rm(Gg)
+# Isotype graphs -----
 
-## Cross graph similarities -----
-# recalculate if needed)
-
-cl=makeCluster(14)
-clusterExport(cl, "Gm50peps")
-Ggxm=pbsapply(Gg50peps,function(p1){
-      sapply(Gm50peps, function(p2){
-        length(intersect(p1,p2))
-      })
-}, cl=cl)
-stopCluster(cl)
-
-Gginm=apply(Ggxm,1,function(l){
-  max(l)/(sum(l)+0.1)
-})
-Gm50sm=set.vertex.attribute(Gm50sm,name="IgGovrlp",value=Gginm)
-Gming=apply(Ggxm,2,function(l){
-  max(l)/(sum(l)+0.1)
-})
-Gg50sm=set.vertex.attribute(Gg50sm,name="IgMovrlp",value=Gming)
-
-Gbging=sapply(Gg50peps, function(p){
-  median(bkgNNg[p])
-})
-Gbginm=sapply(Gm50peps, function(p){
-  median(bkgNNm[p])
-})
-Gm50sm=set.vertex.attribute(Gm50sm,name="Bkgovrlp",value=Gbginm)
-Gg50sm=set.vertex.attribute(Gg50sm,name="Bkgovrlp",value=Gbging)
-
-### Idiotypes, Public and significant dex -----
-
-qq7Ig=sapply(Gg50peps, function(l){
-  sum(qq7I[l]>0)/length(l)
-})
-qq7Ig=log10(qq7Ig+1e-5)
-qq7Im=sapply(Gm50peps, function(l){
-  sum(qq7I[l]>0)/length(l)
-})
-qq7Im=log10(qq7Im+1e-5)
-
-grps=names(vertex_attr(Gg50sm)$Group[[1]])
-gic=as.numeric(substr(grps,4,4))>0
-gia=as.numeric(substr(grps,5,5))>0
-d=gic+gia
-meanbkg=mean(bkgNN)
-
-Gg50CA=t(sapply(vertex_attr(Gg50sm)$Group, function(x){
-  x=as.data.frame(x)/d
-  cntr=sum(x[gic,])
-  apls=sum(x[gia,])
-  return(c(cntr, apls))
-}))
-colnames(Gg50CA)=c("Control","APLS")
-
-y=round(y+0.6)
-chsqgCA=chisq.posthoc.test(as.table(y), simulate.p.value=T)
-j2=unique(2*(seq_along(chsqgCA[,1])[-1] %/% 2))
-j1=j2-1
-ii=which(chsqgCA[j2,4]<0.05)
-Gg_good=rep(0,length(chsqgCA[,4]))
-Gg_good[2*ii-1]=sign(chsqgCA[2*ii-1,4])
-Gg_good=Gg_good[j1]
-
-Gg30P=sapply(vertex_attr(Gg50sm)$Group, function(x){
-  x=as.data.frame(x)
-  n=rownames(x)
-  j=as.numeric(substr(n,1,1))>0
-  return(sum(x[j,]))
-})
-
-grps=names(vertex_attr(Gm50sm)$Group[[1]])
-mic=as.numeric(substr(grps,2,2))>0
-mia=as.numeric(substr(grps,3,3))>0
-d=mic+mia
-
-Gm50CA=t(sapply(vertex_attr(Gm50sm)$Group, function(x){
-  x=as.data.frame(x)/d
-  cntr=sum(x[mic,])
-  apls=sum(x[mia,])
-  return(c(cntr, apls))
-}))
-colnames(Gm50CA)=c("Control","APLS")
-y=Gm50CA+0.1
-chsqmCA=chisq.posthoc.test(as.table(y), simulate.p.value=T)
-j2=unique(2*(seq_along(chsqmCA[,1])[-1] %/% 2))
-j1=j2-1
-ii=which(chsqmCA[j2,4]<0.05)
-Gm_good=rep(0,length(chsqmCA[,4]))
-Gm_good[2*ii-1]=sign(chsqmCA[2*ii-1,4])
-Gm_good=Gm_good[j1]
-
-Gm50P=sapply(vertex_attr(Gm50sm)$Group, function(x){
-  x=as.data.frame(x)
-  n=rownames(x)
-  j=as.numeric(substr(n,1,1))>0
-  return(sum(x[j,]))
-})
-
-Gm50sm=set.vertex.attribute(Gm50sm,name="A/C",value=(Gm50CA[,2]+0.5)/(Gm50CA[,1]+0.5))
-Gm50sm=set.vertex.attribute(Gm50sm,name="A/C_sig",value=Gm_good)
-Gm50sm=set.vertex.attribute(Gm50sm,name="Pub",value=Gm50P)
-Gm50sm=set.vertex.attribute(Gm50sm,name="Id",value=qq7Im)
-Gg50sm=set.vertex.attribute(Gg50sm,name="A/C",value=(Gg50CA[,2]+0.5)/(Gg50CA[,1]+0.5))
-Gg50sm=set.vertex.attribute(Gg50sm,name="A/C_sig",value=Gg_good)
-Gg50sm=set.vertex.attribute(Gg50sm,name="Pub",value=Gg30P)
-Gg50sm=set.vertex.attribute(Gg50sm,name="Id",value=qq7Ig)
-write_graph(Gm50sm,format = "graphml", file="Gm50sm.graphml")
-write_graph(Gg50sm,format = "graphml", file="Gg50sm.graphml")
-
-d=round(corrD(Gg50sm))
-x=grEmbed(Gg50sm, att=3:8, a_e_ratio = 0.2, k=d)
-write_graph(x,format = "graphml", file="Gg50sme.graphml")
-d=round(corrD(Gm50sm))
-x=grEmbed(Gm50sm, att=c(3:8), a_e_ratio = 0.2, k=d)
-write_graph(x,format = "graphml", file="Gm50sme.graphml")
-
-x=cbind(rowAnys(as.matrix(fl[,2:3])),rowAnys(as.matrix(fl[,4:5])))
-table(rowSums(x))
-
-GMreun=unlist(c(Gm50peps[Gm_good!=0],Gg30peps[Gg_good!=0]))
-table(table(GMreun))
-nm=length(unlist(Gm50peps))
-ng=length(unlist(Gg30peps))
-ij=sample(ng,nm)
-mc=unlist(Gm50peps[Gm_good==-1])
-ma=unlist(Gm50peps[Gm_good==1])
-gc=unlist(Gg30peps[ij][Gg_good[ij]==-1])
-ga=unlist(Gg30peps[ij][Gg_good[ij]==1])
-mgca=data.frame(IgM_contr=GMreun %in% mc,IgM_APLS=GMreun %in% ma,
-                IgG_contr=GMreun %in% gc,IgG_APLS=GMreun %in% ga)
-mgcavenn=euler(mgca, shape="ellipse")
-plot(mgcavenn, quantities = T)
-
-# The DEx clusters in IgG and IgM are anticorrelated - 1.4% peptides overlap
-# vs 5.8% for the whole mixed library.
-
-### Smaller Dex Graph ----
-
-GMreun=unique(GMreun)
-Ggmdex=induced.subgraph(G, GMreun)
-Ggmdexsmsm=clusterGraph(Ggmdex, resol=10)
-
-load("Gctrpeps")
-Ggmpepsmm=Gpeps
-save(Ggmpepsmm, file="Ggmpepsmm")
-Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="size",value = sqrt(vertex_attr(Ggmdexsmsm)$size))
-
-GgmdexsmsmP=sapply(vertex_attr(Ggmdexsmsm)$Group, function(x){
-  x=as.data.frame(x)
-  n=rownames(x)
-  j=as.numeric(substr(n,1,1))>0
-  return(sum(x[j,])/sum(x))
-})
-
-qq7Igmdexsm=sapply(Ggmpepsmm, function(l){
-  sum(qq7I[l]>0)/length(l)
-})
-Gbgdexsm=sapply(Ggmpepsmm, function(p){
-  median(bkgNN[p])
-})
-
-dexgpeps=Gg50peps[Gg_good!=0]
-names(dexgpeps)=paste(names(dexgpeps),"g", sep="")
-dexmpeps=Gm50peps[Gm_good!=0]
-names(dexmpeps)=paste(names(dexmpeps),"m", sep="")
-ggood=Gg_good[Gg_good!=0]
-names(ggood)=names(dexgpeps)
-ggood[ggood==-1]="GC"
-ggood[ggood==1]="GA"
-mgood=Gm_good[Gm_good!=0]
-names(mgood)=names(dexmpeps)
-mgood[mgood==-1]="MC"
-mgood[mgood==1]="MA"
-x=melt(c(dexgpeps,dexmpeps))
-x[,2]=c(ggood,mgood)[x[,2]]
-x=aggregate(x[,2], by=list(x[,1]), function(y) paste(y, collapse=""))
-y=x[,2]
-names(y)=x[,1]
-goodgr=y
-table(goodgr)
-
-GgmpepsmmL=melt(Ggmpepsmm)
-GgmpepsmmL[,2]=goodgr[GgmpepsmmL[,1]]
-y=GgmpepsmmL[,2]
-names(y)=GgmpepsmmL[,1]
-Goodgrsm=y
-t0=rep(0,8)
-names(t0)=names(table(Goodgrsm))
-Goodgrsm=t(sapply(Ggmpepsmm, function(l){
-  t=table(Goodgrsm[l])
-  t0[names(t)]=t
-  return(t0/sum(t0))
-}))
-Goodgrsm=as.data.frame(Goodgrsm)
-
-# the gained and lost specificities in IgG and IgM are anti-correlated
-
-Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="Pub", value=GgmdexsmsmP)
-Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="Id", value=qq7Igmdexsm)
-Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="Bkg", value=Gbgdexsm)
-Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrMC", value=Goodgrsm$MC)
-Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrMA", value=Goodgrsm$MA)
-Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrGC", value=Goodgrsm$GC)
-Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrGA", value=Goodgrsm$GA)
-Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrGCMC", value=Goodgrsm$GCMC)
-Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrGCMA", value=Goodgrsm$GCMA)
-Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrGAMC", value=Goodgrsm$GAMC)
-Ggmdexsmsm=set.vertex.attribute(Ggmdexsmsm, name="ggrGAMA", value=Goodgrsm$GAMA)
-
-k=round(corrD(Ggmdexsmsm))
-x=grEmbed(Ggmdexsmsm, att=c(3,5:15), attsc=c(8:15), a_e_ratio = 1e-3, k=k)
-x=set.edge.attribute(x, name="weight", value=1/edge_attr(x)$weight)
-write_graph(x, format = "graphml", file="Ggmdexsmsm.graphml")
-
-logos64smsm=lapply(Ggmpepsmm,ggseqlogo)
-save(logos64smsm,file="logosG24smsm") 
-
-#### Line graphs of the clusters -----
-
-load("G")
-
-lGdexs=lapply(seq_along(Ggmpepsmm), function(i){
-  print(i)
-  gi=induced.subgraph(G, Ggmpepsmm[[i]])
-  es=ends(gi, E(gi))
-  lcss=apply(es,1, function(pij){
-    paste(LCS(as.character(unlist(strsplit(pij[1],split=""))),
-              as.character(unlist(strsplit(pij[2],split=""))))$LCS, collapse="")
-  })
-  lgi=make_line_graph(gi)
-  lgi=set_vertex_attr(lgi, name="name", value=lcss)
-  lgi=set_vertex_attr(lgi, name="N", value=1)
-  lgi=set_edge_attr(lgi, name="weight", value=1)
-  lgi=contract(lgi,as.numeric(as.factor(vertex_attr(lgi)$name)), vertex.attr.comb = list(N ="sum", name="first"))
-  lgi=simplify(lgi, edge.attr.comb = "sum")
-  w=log10(edge_attr(lgi)$weight)
-  edge_attr(lgi)$weight=1/w
-  thr=max(edge_attr(mst(lgi))$weight)
-  lgi=delete_edges(lgi, E(lgi)[edge_attr(lgi)$weight>thr])
-  edge_attr(lgi)$weight=1/edge_attr(lgi)$weight
-  return(lgi)
-})
-
-names(lGdexs)=paste("n", 0:(length(Ggmpepsmm)-1), sep="")
-pdf(file="lGcl102.pdf", w=30, height = 30)
-for (i in seq_along(lGdexs)) {
-  plot(lGdexs[[i]], vertex.size=log10(vertex_attr(lGdexs[[i]])$N+0.5), edge.width=edge_attr(lGdexs[[1]])$weight, vertex.label.cex=0.3, main=names(lGdexs)[i])
-}
-dev.off()
-
-allcs=lapply(lGdexs, function(g) vertex_attr(g)$name)
-sum(lengths(allcs))
-table(unlist(allcs))
-
-allGdexs=do.call(union, lGdexs)
-allGdexs=simplify(allGdexs, edge.attr.comb = "sum")
-allw=as.data.frame(sapply(seq_along(edge_attr_names(allGdexs)), function(i) edge_attr(allGdexs)[i]))
-allw[is.na(allw)]=0
-w=rowMaxs(as.matrix(allw))
-for (n in edge_attr_names(allGdexs)) allGdexs=delete_edge_attr(allGdexs, n)
-allGdexs=set_edge_attr(allGdexs,name="weight", value=w)
-for (n in graph_attr_names(allGdexs)) allGdexs=delete_graph_attr(allGdexs, n)
-
-write_graph(allGdexs, format = "graphml", file="allGdexs.graphml")
-
-#### Line Graph -----
-
-load("Ggmdex")
-plan(strategy = cluster, workers=makeCluster(18))
-
-es=ends(Ggmdex, E(Ggmdex))
-
-proct=proc.time()
-lcss=future_apply(es,1, function(pij){
-  paste(LCS(as.character(unlist(strsplit(pij[1],split=""))),
-            as.character(unlist(strsplit(pij[2],split=""))))$LCS, collapse="")
-})
-print(proc.time()-proct)
-
-lGgmdex=make_line_graph(Ggmdex)
-lGgmdex=set_vertex_attr(lGgmdex, name="name", value=lcss)
-lGgmdex=set_vertex_attr(lGgmdex, name="N", value=1)
-lGgmdex=set_edge_attr(lGgmdex, name="weight", value=1)
-lGgmdex=contract(lGgmdex,as.numeric(as.factor(vertex_attr(lGgmdex)$name)), vertex.attr.comb = list(N ="sum", name="first"))
-lGgmdex=simplify(lGgmdex, edge.attr.comb = "sum")
-lGgmdex=induced_subgraph(lGgmdex, V(lGgmdex)[vertex_attr(lGgmdex)$N>6])
-lGgmdex=induced.subgraph(lGgmdex, V(lGgmdex)[components(lGgmdex)$membership==1])
-
-#w=log10(edge_attr(lGgmdex)$weight)
-
-w=edge_attr(lGgmdex)$weight
-x=cut(w,100,labels=F)
-xi=sort(unique(x[x<50]))
-cmpN=future_lapply(xi, function(i){
-  print(i)
-  g=delete_edges(lGgmdex,E(lGgmdex)[x<=i])
-  table(components(g)$csize)
-})
-names(cmpN)=xi
-
-lGgmdex=delete_edges(lGgmdex, E(lGgmdex)[w<1.75])
-write.graph(lGgmdex, format = "graphml", file="lGgmdex.graphml")
-
-LGleiden=cluster_leiden(induced_subgraph(lGgmdex, V(lGgmdex)[components(lGgmdex)$membership==1]))
-Ns=vertex_attr(lGgmdex)$N
-names(Ns)=vertex_attr(lGgmdex)$name
-wcl=aggregate(Ns[LGleiden$names], by=list(LGleiden$membership), "sum")
-hist(log10(wcl[,2]))
-hwcl=wcl[rank(wcl[,2])>(nrow(wcl)-300),]
-xL=lapply(hwcl[,1], function(cl) LGleiden$names[LGleiden$membership==cl])
-bestxL=sapply(xL, function(l) l[which.max(Ns[l])])
-x=Ns[bestxL]
-names(x)=bestxL
-bestxL=x
-
-x=es[lcss %in% names(bestxL)]
-names(table(x)[table(x)>150])
-
-X=induced.subgraph(lGgmdex, V(lGgmdex)[components(lGgmdex)$membership==1])
-lGgmdexsm=clusterGraph(X)
-load("Gctrpeps")
-lGgmdexlcssm=Gpeps
-write.graph(lGgmdexsm, format = "graphml", file="lGgmdexsm.graphml")
-
-
-# M->G separate graphs -----
-
-load("G")
+load("Ggiant")
 load("flnew")
 
 fls=fl[names(V(G)),]
-gic=fls$cM|fls$cG
-gia=fls$aM|fls$aG
 
-Gc=induced.subgraph(G,gic)
-Ga=induced.subgraph(G,gia)
-save(Gc, file="Gcw")
-save(Ga, file="Gaw")
+## IgM ----
+gm=fls$cM|fls$aM
+Gm=induced.subgraph(G,gm)
+save(Gm, file="Gm")
 
-Gc=set_edge_attr(Gc,"weight",value=1)
-Gc30sm=clusterGraph(Gc, resol=30)
+Gm38=clusterGraph(Gm, resol=38)
 load("Gctrpeps")
-Gc30peps=Gpeps
-save(Gc30peps, file="Gc30peps")
-rm(Gc)
+Gm38peps=Gpeps
+save(Gm38peps, file="Gm38peps")
+rm(Gm)
 
-Ga=set_edge_attr(Ga,"weight",value=1)
-Ga53sm=clusterGraph(Ga, resol=53)
-load("Gctrpeps")
-Ga53peps=Gpeps
-save(Ga53peps, file="Ga53peps")
-rm(Ga)
+grps=names(vertex_attr(Gm38)$Group[[1]])
+cim=as.numeric(substr(grps,2,3))==10
+aim=as.numeric(substr(grps,2,3))==1
+caim=as.numeric(substr(grps,2,3))==11
+d=cim+aim+2*caim
 
-grps=names(vertex_attr(Gc30sm)$Group[[1]])
-cim=as.numeric(substr(grps,2,2))>0
-cig=as.numeric(substr(grps,4,4))>0
-d=cim+cig
-meanbkg=mean(bkgNN)
-
-Gc30CA=t(sapply(vertex_attr(Gc30sm)$Group, function(x){
-  x=as.data.frame(x)/d
-  igm=sum(x[cim,])
-  igg=sum(x[cig,])
-  return(c(igm, igg))
+Gm38CA=t(sapply(vertex_attr(Gm38)$Group, function(x){
+  x=as.data.frame(x)
+  cntr=sum(x[cim,])
+  apl=sum(x[aim,])
+  all=sum(x[caim,])
+  return(c(cntr, apl, all))
 }))
-colnames(Gc30CA)=c("IgM","IgG")
+colnames(Gm38CA)=c("Control","APLS","All").
+rownames(Gm38CA)=names(V(Gm38))
 
-y=round(Gc30CA+0.6)
-chsqcCA=chisq.posthoc.test(as.table(y), simulate.p.value=T)
-j2=unique(2*(seq_along(chsqcCA[,1])[-1] %/% 2))
+y=Gm38CA
+chsqmCA=chisq.posthoc.test(as.table(y), simulate.p.value=T)
+j2=(1:(nrow(chsqmCA)/2))*2
 j1=j2-1
-ii=which(chsqcCA[j2,4]<0.05)
-Gc_good=rep(0,length(chsqcCA[,4]))
-Gc_good[2*ii-1]=sign(chsqcCA[2*ii-1,4])
-Gc_good=Gc_good[j1]
+Gm_good=(chsqmCA[j2,3:5]<0.05)*sign(chsqmCA[j1,3:5])
+rownames(Gm_good)=chsqmCA$Dimension[j2]
 
-Gc30P=sapply(vertex_attr(Gc30sm)$Group, function(x){
+Gm38P=sapply(vertex_attr(Gm38)$Group, function(x){
   x=as.data.frame(x)
   n=rownames(x)
   j=as.numeric(substr(n,1,1))>0
   return(sum(x[j,]))
 })
 
-grps=names(vertex_attr(Ga53sm)$Group[[1]])
-aim=as.numeric(substr(grps,3,3))>0
-aig=as.numeric(substr(grps,5,5))>0
-d=aim+aig
 
-Ga53CA=t(sapply(vertex_attr(Ga53sm)$Group, function(x){
-  x=as.data.frame(x)/d
-  cntr=sum(x[aim,])
-  apls=sum(x[aig,])
-  return(c(cntr, apls))
+## IgG ----
+
+gg=fls$cG|fls$aG
+Gg=induced.subgraph(G,gg)
+save(Gg, file="Gg")
+
+Gg45=clusterGraph(Gg, resol=45)
+load("Gctrpeps")
+Gg45peps=Gpeps
+save(Gg45peps, file="Gg45peps")
+rm(Gg)
+
+grps=names(vertex_attr(Gg45)$Group[[1]])
+cig=as.numeric(substr(grps,4,5))==10
+aig=as.numeric(substr(grps,4,5))==1
+caig=as.numeric(substr(grps,4,5))==11
+d=cig+aig+2*caig
+
+Gg45CA=t(sapply(vertex_attr(Gg45)$Group, function(x){
+  x=as.data.frame(x)
+  cntr=sum(x[cig,])
+  apl=sum(x[aig,])
+  all=sum(x[caig,])
+  return(c(cntr, apl, all))
 }))
-colnames(Ga53CA)=c("IgM","IgG")
-y=round(Ga53CA+0.6)
-chsqaCA=chisq.posthoc.test(as.table(y), simulate.p.value=T)
-j2=unique(2*(seq_along(chsqaCA[,1])[-1] %/% 2))
-j1=j2-1
-ii=which(chsqaCA[j2,4]<0.05)
-Ga_good=rep(0,length(chsqaCA[,4]))
-Ga_good[2*ii-1]=sign(chsqaCA[2*ii-1,4])
-Ga_good=Ga_good[j1]
+colnames(Gg45CA)=c("Control","APLS","All")
+rownames(Gg45CA)=names(V(Gg45))
 
-Ga53P=sapply(vertex_attr(Ga53sm)$Group, function(x){
+y=Gg45CA
+chsqgCA=chisq.posthoc.test(as.table(y), simulate.p.value=T)
+j2=(1:(nrow(chsqgCA)/2))*2
+j1=j2-1
+Gg_good=(chsqgCA[j2,3:5]<0.05)*sign(chsqgCA[j1,3:5])
+rownames(Gg_good)=chsqgCA$Dimension[j2]
+
+Gg45P=sapply(vertex_attr(Gg45)$Group, function(x){
   x=as.data.frame(x)
   n=rownames(x)
   j=as.numeric(substr(n,1,1))>0
@@ -1070,250 +402,396 @@ Ga53P=sapply(vertex_attr(Ga53sm)$Group, function(x){
 })
 
 load("qq7I")
-qq7Ic=sapply(Gc30peps, function(l){
+qq7Im=sapply(Gm38peps, function(l){
   sum(qq7I[l]>0)/length(l)
 })
-qq7Ic=log10(qq7Ic+1e-5)
-qq7Ia=sapply(Ga53peps, function(l){
+qq7Im=log10(qq7Im+1e-5)
+qq7Ig=sapply(Gg45peps, function(l){
   sum(qq7I[l]>0)/length(l)
 })
-qq7Ia=log10(qq7Ia+1e-5)
+qq7Ig=log10(qq7Ig+1e-5)
 
-Ga53sm=set.vertex.attribute(Ga53sm,name="A/C",value=(Ga53CA[,2]+0.5)/(Ga53CA[,1]+0.5))
-Ga53sm=set.vertex.attribute(Ga53sm,name="A/C_sig",value=Ga_good)
-Ga53sm=set.vertex.attribute(Ga53sm,name="Pub",value=Ga53P)
-Ga53sm=set.vertex.attribute(Ga53sm,name="Id",value=qq7Ia)
-Gc30sm=set.vertex.attribute(Gc30sm,name="A/C",value=(Gc30CA[,2]+0.5)/(Gc30CA[,1]+0.5))
-Gc30sm=set.vertex.attribute(Gc30sm,name="A/C_sig",value=Gc_good)
-Gc30sm=set.vertex.attribute(Gc30sm,name="Pub",value=Gc30P)
-Gc30sm=set.vertex.attribute(Gc30sm,name="Id",value=qq7Ic)
-write_graph(Ga53sm,format = "graphml", file="Ga53sm.graphml")
-write_graph(Gc30sm,format = "graphml", file="Gc30sm.graphml")
+Gm38=set.vertex.attribute(Gm38,name="C",value=Gm38CA[,1]/vertex_attr(Gm38)$size)
+Gm38=set.vertex.attribute(Gm38,name="C_sig",value=Gm_good[,1])
+Gm38=set.vertex.attribute(Gm38,name="A",value=Gm38CA[,2]/vertex_attr(Gm38)$size)
+Gm38=set.vertex.attribute(Gm38,name="A_sig",value==Gm_good[,2])
+Gm38=set.vertex.attribute(Gm38,name="all_sig",value=Gm_good[,3])
+Gm38=set.vertex.attribute(Gm38,name="Pub",value=Gm38P/vertex_attr(Gm38)$size)
+Gm38=set.vertex.attribute(Gm38,name="Id",value=qq7Im)
 
-d=round(corrD(Gc30sm))
-x=grEmbed(Gc30sm, att=3:8, a_e_ratio = 0.2, k=d)
-write_graph(x,format = "graphml", file="Gc30sme.graphml")
-d=round(corrD(Ga53sm))
-x=grEmbed(Ga53sm, att=c(3:8), a_e_ratio = 0.2, k=d)
-write_graph(x,format = "graphml", file="Ga53sme.graphml")
+Gg45=set.vertex.attribute(Gg45,name="C",value=Gg45CA[,1]/vertex_attr(Gg45)$size)
+Gg45=set.vertex.attribute(Gg45,name="C_sig",value=Gg_good[,1])
+Gg45=set.vertex.attribute(Gg45,name="A",value=Gg45CA[,2]/vertex_attr(Gg45)$size)
+Gg45=set.vertex.attribute(Gg45,name="A_sig",value=Gg_good[,2])
+Gg45=set.vertex.attribute(Gg45,name="all_sig",value=Gg_good[,3])
+Gg45=set.vertex.attribute(Gg45,name="Pub",value=Gg45P/vertex_attr(Gg45)$size)
+Gg45=set.vertex.attribute(Gg45,name="Id",value=qq7Ig)
+save(Gm38, file="Gm38")
+save(Gg45, file="Gg45")
 
-CAreun=unlist(c(Gc30peps[Gc_good!=0],Ga53peps[Ga_good!=0]))
-table(table(CAreun))
-nm=length(unlist(Gc30peps))
-ng=length(unlist(Ga53peps))
-ij=sample(ng,nm)
-cm=unlist(Gc30peps[Gc_good==-1])
-cg=unlist(Gc30peps[Gc_good==1])
-am=unlist(Ga53peps[ij][Ga_good[ij]==-1])
-ag=unlist(Ga53peps[ij][Ga_good[ij]==1])
-mgca=data.frame(contr_IgM=CAreun %in% cm,APLS_IgM=CAreun %in% am,
-                contr_IgG=CAreun %in% cg,APLS_IgG=CAreun %in% ag)
-mgcavenn=euler(mgca, shape="ellipse")
-plot(mgcavenn, quantities = T)
+write_graph(Gm38,format = "graphml", file="Gm38.graphml")
+write_graph(Gg45,format = "graphml", file="Gg45.graphml")
+
+d=round(corrD(Gm38))
+x=grEmbed(Gm38, att=c(5,7,10,11),  k=d)
+write_graph(x,format = "graphml", file="Gm38e.graphml")
+d=round(corrD(Gg45))
+x=grEmbed(Gg45, att=c(5,7,10,11), k=d)
+write_graph(x,format = "graphml", file="Gg45e.graphml")
+d=round(corrD(G70))
+x=grEmbed(G70, att=c(4:10), k=d)
+write_graph(x,format = "graphml", file="G70e.graphml")
+
+# Fusion graph -----
+load("Ggiant")
+allposcl=list(G70peps[rowSums(abs(G_good))>0],
+              Gm38peps[rowSums(abs(Gm_good[,2:3]))>0],
+              Gg45peps[rowSums(abs(Gg_good[,2:3]))>0])
+allpos=unique(unlist(allposcl))
+Gpos=induced.subgraph(G,V(G)[allpos])
+Gpos=induced.subgraph(Gpos,components(Gpos)$membership==1)
+ecGp=eigen_centrality(Gpos)
+rm(G)
+gc()
 
 
+## Line graph fusion ----
+lGpos=make_line_graph(Gpos)
+lGpos=set_vertex_attr(lGpos, name="name", value=edge_attr(Gpos)$LCS)
+lGpos=set_vertex_attr(lGpos, name="N", value=1)
+lGpos=set_edge_attr(lGpos, name="weight", value=1)
+lGpos=contract(lGpos,as.numeric(as.factor(vertex_attr(lGpos)$name)), vertex.attr.comb = list(N ="sum", name="first"))
+lGpos=simplify(lGpos, edge.attr.comb = "sum")
 
-# 4 graphs -----------
-plan("cluster", workers=makeCluster(4))
-load("G")
-Gmc=induced.subgraph(G, V(G)[fls$cM])
-Gma=induced.subgraph(G, V(G)[fls$aM])
-Ggc=induced.subgraph(G, V(G)[fls$cG])
-Gga=induced.subgraph(G, V(G)[fls$aG])
+dlG=degree(lGpos)
+vlG=names(V(lGpos))
+eclG=eigen_centrality(lGpos)
+lGpos=set_vertex_attr(lGpos, name="size", value=log10(vertex_attr(lGpos)$N))
 
-Gmc=induced.subgraph(Gmc,components(Gmc)$membership==1)
-Gma=induced.subgraph(Gma,components(Gma)$membership==1)
-Ggc=induced.subgraph(Ggc,components(Ggc)$membership==1)
-Gga=induced.subgraph(Gga,components(Gga)$membership==1)
+lGpsm=clusterGraph_l(lGpos, resol=20)
+load("Gctrpeps_l")
+lGpsmpeps=Gpeps
+x=edge_attr(lGpsm)$weight
+x=log10(x)
+x=(x-min(x)+0.1)/diff(range(x))
+lGpsm=set_edge_attr(lGpsm, name="weight",value=x)
+lGpsm=set_vertex_attr(lGpsm, name="sizeR",value=sapply(vertex_attr(lGpsm)$N, function(x) sqrt(sum(x))))
+write.graph(lGpsm, format = "graphml", file="lGpsm.graphml")
 
-msc=future_lapply(list(Gmc,Gma,Ggc,Gga), moduScan)
-sapply(msc, function(l) {
-  d1=diff(l[,2])/l[-nrow(l),2]
-  d2=diff(d1)/abs(d1[-length(d1)])
-  print(cbind(d1[-1],d2))
-  # s1=sign(d1[-1])
-  # d1=log10(abs(d1[-1]))
-  # s2=sign(d2)
-  # d2=log10(abs(d2))
-  plot(d1[-1],d2, ty="b")
+lGptrim=induced_subgraph(lGpos, V(lGpos)[vertex_attr(lGpos)$N>3])
+write.graph(lGptrim, format = "graphml", file="lGptrim.graphml")
+
+lGptrimsm=clusterGraph_l(lGptrim, resol=20)
+load("Gctrpeps_l")
+lGptrimsmpeps=Gpeps
+write.graph(lGptrimsm,format = "graphml", file="lGptrimsm.graphml")
+
+logoslGptrim=lapply(lGptrimsmpeps,function(s) {
+  x=s[nchar(s)==6]
+  s=s[nchar(s)==5]
+  x=c(sapply(x,function(i) c(substr(i,1,5),substr(i,2,6))))
+  s=c(s,x)
+  ggseqlogo(s)
 })
+save(logoslGptrim,file="logoslGptrim") 
 
-g=random.graph.game(vcount(Gga_),ecount(Gga_), "gnm")
-x=moduScan(g)
-d1=diff(x[,2])/x[-nrow(x),2]
-d2=diff(d1)/abs(d1[-length(d1)])
-plot(d1[-1],d2, ty="b")
-d2
+pdf(file="logoslGptrim.pdf", width=5,height = 5)
+for (i in seq_along(logoslGptrim)) plot(logoslGptrim[[i]])
+dev.off()
 
-Gmc_=clusterGraph(Gmc, resol = 10)
-load("Gctrpeps")
-Gmc_peps=Gpeps
-Gma_=clusterGraph(Gma, resol = 10)
-load("Gctrpeps")
-Gma_peps=Gpeps
-Ggc_=clusterGraph(Ggc, resol = 10)
-load("Gctrpeps")
-Ggc_peps=Gpeps
-Gga_=clusterGraph(Gga, resol = 10)
-load("Gctrpeps")
-Gga_peps=Gpeps
+complx=future_sapply(vlG,function(p) mean(table(unlist(strsplit(p,split="")))))
+complx_deg=cbind(complx,dlG)
+complx_N=cbind(complx,N=vertex_attr(lGpos)$N)
+boxplot(data=complx_deg,log10(dlG)~complx,notch=T)
+boxplot(data=complx_N,log10(N)~complx,notch=T)
 
-plan("cluster", workers=makeCluster(14))
-GGG=list(list(Gmc_,Gmc_peps),list(Gma_, Gma_peps),list(Ggc_,Ggc_peps),list(Gga_, Gga_peps))
-nms0=c("mc","ma","gm","ga")
-AttrG=lapply(seq_along(GGG), function(i) {
-  print(i)
-  gp=GGG[[i]]
-  p=gp[[2]]
-  a=future_sapply(p, function(x) {
-    g1=mean(fls[x,-(i+1)][,2])
-    g2=mean(fls[x,-(i+1)][,3])
-    g3=mean(fls[x,-(i+1)][,4])
-    nms=nms0[-i]
-    gg=c(g1,g2,g3)
-    names(gg)=nms
-    b=mean(bkgNN[x])
-    P=mean(fls[x,]$Pub)
-    I=mean(qq7I[x])
-    return(c(Bkg=b, Pub=P, Id=I, gg))
-  })
-  a=t(a)
-  return(a)
+complx=future_sapply(unlist(lGptrimsmpeps),function(p) mean(table(unlist(strsplit(p,split="")))))
+complx_deg=cbind(complx,dlGt=degree(lGptrim))
+complx_N=cbind(complx,N=vertex_attr(lGptrim)$N)
+boxplot(data=complx_deg,log10(dlGt)~complx,notch=T)
+boxplot(data=complx_N,log10(N)~complx,notch=T)
+
+# There is some negative correlation between the mean degree or the 
+# mean N in the lGpos and the entropy of the lcs-s for the length 5 
+# but it is lost in lGptrim.
+
+## Eigencentrality based selection ----
+
+# nx=vertex_attr(lGpos)$N  
+# names(nx)=names(V(lGpos))
+# y=eclG$vector
+# y[is.na(y)|y==0]=min(y[!is.na(y)&y>0])/2
+
+ecchng=future_lapply(lGpsmpeps, function(l) {
+  #eclst=closeness(induced.subgraph(lGpos,l))
+  # mn=min(eclst[!is.na(eclst)&eclst>0])
+  # eclst[is.na(eclst)|eclst==0]=mn/2
+  #x0=names(which.max(eclst*y[names(eclst)]))
+  if(length(l)>1) {
+    eclst=eigen_centrality(induced.subgraph(lGpos,l))$vector
+    x0=names(which.max(eclst))
+  }
+  else {
+    x0=l
+  }
+  x=names(ego(induced.subgraph(lGpos,l),1,x0)[[1]])
+  xn=nx[x]
+  xn=sort(xn, decreasing = T)
+  i=seq_along(xn)
+  #thr=length(xn)
+  thr=sapply(1:length(xn),function(i) sum(xn[1:i])/sum(xn))
+  thr=length(thr[thr<=0.33])+1
+  #clr=round(log10(nx[names(eclst$vector)]+0.5))+1
+  #plot(log10(eclst$vector), log10(eclG$vector[names(eclst$vector)]), cex=0)
+  #text(log10(eclst$vector), log10(eclG$vector[names(eclst$vector)]), cex=0.2*clr,labels = names(eclst$vector), col=clr)
+  return(list(x0,xn[1:thr]))
 })
+lcs_g=sapply(ecchng, function(l) names(l[[2]]))
 
-for (i in 1:4){
-  for (j in 1:6) GGG[[i]][[1]]=set_vertex_attr(GGG[[i]][[1]], name=colnames(AttrG[[i]])[j], value=AttrG[[i]][,j])
+x=unlist(sapply(lcs_g, function(y) y[1]))
+dx=distances(lGpos, x,x, weights=NA)
+range(dx[dx>0])
+diag(dx)=100
+table(rowMins(dx))
+ecmaxntwk=components(induced_subgraph(lGpos,x))$membership[x]
+
+
+logos_lcs_g=lapply(lcs_g,function(s) {
+  ggseqlogo(s)
+})
+save(logos_lcs_g,file="logos_lcs_g") 
+
+pdf(file="logos_lcs_g.pdf", width=5,height = 5)
+for (i in seq_along(logos_lcs_g)) plot(logos_lcs_g[[i]])
+dev.off()
+
+
+# Peptides chooser ------
+
+load("Ggiant")
+es=ends(G, E(G))
+lcs=edge_attr(G)$LCS
+G=NULL
+rm(G)
+gc()
+es=cbind(es,lcs)
+es1=es[,-2]
+es2=es[,-1]
+es=rbind(es1,es2)
+rm(es1,es2)
+es=aggregate(es[,2], by=list(es[,1]), "list")
+x=sapply(es[,2], table)
+names(x)=es[,1]
+pep2lcs=x
+
+# only for lGpos
+es=es[es[,2] %in% names(V(lGpos)) & es[,1] %in% names(V(Gpos)),]
+x=aggregate(es[,1], by=list(es[,2]), "list")
+y=sapply(x[,2], table)
+names(y)=x[,1]
+lcs2pep=y
+rm(x,y,es)
+
+plan("cluster", workers=makeCluster(16))
+pepbe=future_sapply(lcs_g, function(l){
+  z=melt(lcs2pep[l])
+  z=aggregate(z$value, by=list(z$Var1), "sum")
+  x=z$x
+  names(x)=z$Group.1
+  z=x[order(x, decreasing = T)] # peptides having lcs from the ith cluster 
+  return(z)   # ordered by the # of edges with their NN named with these lcs-s 
+})
+closeAllConnections()
+
+for (j in seq_along(pepbe)){
+  p=names(pepbe[[j]])
+  seq2fasta(S=p,fnm=paste("pepsel/pepsel",j,collapse = "_"))
 }
 
-GGe=lapply(1:4, function(i){
-  d=round(corrD(GGG[[i]][[1]]))
-  print(d)
-  grEmbed(GGG[[i]][[1]], att=5:10, attsc = 5:7, k=d)
-})
-
-write.graph(GGe[[1]], format="graphml", file="GGGmc.graphml")
-write.graph(GGe[[2]], format="graphml", file="GGGma.graphml")
-write.graph(GGe[[3]], format="graphml", file="GGGgc.graphml")
-write.graph(GGe[[4]], format="graphml", file="GGGga.graphml")
-
-load("GGG")
-load("G")
-
-nms0=c("mc","ma","gc","ga")
-AttrGp=lapply(seq_along(GGG), function(i) {
-  print(i)
-  gp=GGG[[i]]
-  p=gp[[2]]
-
-  a=future_sapply(p, function(x) {
-    flsx=fls[x,]
-    g1=flsx[,-(i+1)][,2]
-    g2=flsx[,-(i+1)][,3]
-    g3=flsx[,-(i+1)][,4]
-    nms=nms0[-i]
-    gg=cbind(g1,g2,g3)
-    colnames(gg)=nms
-    P=flsx[x,1]
-    b=bkgNN[x]
-    I=qq7I[x]
-    xt=data.frame(Bkg=b, Pub=P, Id=I, gg)
-    rownames(xt)=x
-    return(xt)
-  })
-  a=t(a)
-  return(a)
-})
-
-LLATT=lapply(AttrGp,function(l) {
-  y=apply(l,1,melt)
-  y=lapply(names(y), function(l2){
-    colnames(y[[l2]])[colnames(y[[l2]])=="value"]=l2
-    colnames(y[[l2]])[colnames(y[[l2]])=="L1"]="Par"
-    return(y[[l2]])
-  })
-  y=melt(y)
-  y=y[,-4]
-  colnames(y)[2]="Cluster"
-  return(y)
-})
-names(LLATT)=nms0
-
-sigLLATs=lapply(LLATT, function(y){
-  y$value[y$Par=="Bkg"]=y$value[y$Par=="Bkg"]>mean(y$value[y$Par=="Bkg"])
-  y$value[y$Par=="Id"]=y$value[y$Par=="Id"]>0
-  
-  t0=c(0,0)
-  names(t0)=c(0,1)
-  cc0=unique(as.character(y$Cluster))
-  
-  sapply(unique(y$Par), function(p){
-    z0=t(sapply(cc0, function(cc){
-      t=table(y$value[y$Par==p & y$Cluster==cc])
-      t0[names(t)]=t
-      as.matrix(t0)
+pepbingood=future_sapply(1:80, function(j){
+    x=t(sapply(seq_along(pepbe), function(i){
+      l=pepbe[[i]]
+      print(i)
+      if (length(l)<j) return(rep(0,8))
+      p=names(l)[j] 
+      pall=c(G_good[grep(p,G70peps),][,c(8,4,2,1)])
+      pm=unlist(c(Gm_good[grep(p,Gm38peps),1:2],0,0))
+      pg=unlist(c(0,0,Gg_good[grep(p,Gg45peps),1:2]))
+      m=rbind(pall,pm,pg)
+      mup=colSums(m==1)
+      mdown=colSums(m==-1)
+      return(c(mup,-mdown))
     }))
-    colnames(z0)=c("No","Yes")
-    chsq=chisq.posthoc.test(z0, simulate.p.value=T)
-    i=(1:(nrow(chsq)/2))*2
-    p=chsq[i,3]
-    sig=sign(chsq[i-1,4])
-    list(sig*(p<0.05))
-  })
-  
-})  
-
-# Chosen Peptides ------
-
-smsmLcs=lapply(lGdexs,function(g){
-  x=names(V(g))
-  n=vertex_attr(g)$N
-  x=data.frame(LCS=x,N=n)
-  x=x[order(x$N,decreasing = T),]
-})
-names(smsmLcs)=names(lGdexs)
-
-load("G")
-dG=degree(G)
-cg=melt(Gg50peps)
-cg[,2]=as.numeric(unlist(stri_extract_all(cg[,2], regex="(?<=C)\\d+")))
-cg[,2]=Gg_good[cg[,2]]
-cm=melt(Gm50peps)
-cm[,2]=as.numeric(unlist(stri_extract_all(cm[,2], regex="(?<=C)\\d+")))
-cm[,2]=Gm_good[cm[,2]]
-pepcode=rep("",length(GMreun))
-names(pepcode)=GMreun
-im=cm[,1] %in% GMreun
-ig=cg[,1] %in% GMreun
-pepcode[cg[ig,1]]=paste(pepcode[cg[ig,1]],"G",cg[ig,2],sep="")
-pepcode[cm[im,1]]=paste(pepcode[cm[im,1]],"M",cm[im,2],sep="")
-t0=table(pepcode)
-t0=sapply(t0,function(x) x=0)
-       
-chosenpep=lapply(seq_along(lGdexs), function(i){
-  if (length(V(lGdexs[[i]]))==0) return(Ggmpepsmm[[i]])
-  g=lGdexs[[i]]
-  cl=cluster_leiden(g, objective_function = "modularity", n_iterations =5)$membership
-  ns=aggregate(smsmLcs[[i]]$N, by=list(cl), "sum")[,2]
-  centralcs=sapply(1:max(cl), function(ci){
-    gi=induced.subgraph(g,V(g)[cl==ci])
-    eigen_centrality(gi)$vector
-  })
-  
-  pp=sapply(1:max(cl),function(j){
-    ls=names(V(g))[cl==j]
-    d=stringdistmatrix(ls,Ggmpepsmm[[i]], method = "lcs")
-    p=Ggmpepsmm[[i]][colAnys(d<3)]
-    t1=table(pepcode[p])
-    t0[names(t1)]=t1
-    return(t0)
-  })
-  print(pp)
-  return(pp)
+    return(colSums(x))
 })
 
+x=sapply(1:ncol(pepbingood),function(j) pepbingood[,j]/sum(lengths(pepbe)>(j-1)))
 
-chspp=unique(unlist(chosenpep))
-pm=unique(unlist(Gm50peps[Gm_good!=0]))
-(pm[pm %in% chspp])
-pg=unique(unlist(Gg50peps[Gg_good!=0]))
-table(as.data.frame(fl[(pg[pg %in% chspp]),2:5]))
+boxplot(t(x), notch=T, ylim=c(-1,1))
+
+xm=rowMeans(x)
+xm[5:8]=-xm[5:8]
+xsd=rowSds(x)
+plot(xm[1:4], xm[5:8], cex=0, xlim=c(-0.01,0.8),ylim=c(-0.01,0.8),xlab="Proportion overexressed", ylab="Proportion underexpressed")
+par(new=T)
+for (i in 1:4) {
+  plot(c(xm[i]-xsd[i],xm[i]+xsd[i]), c(xm[i+4],xm[i+4]), ty="l",xlim=c(-0.01,0.8),ylim=c(-0.01,0.8), xlab="",ylab="")
+  par(new=T)
+}
+for (i in 1:4) {
+  plot(c(xm[i],xm[i]), c(xm[i+4]-xsd[i],xm[i+4]+xsd[i]), ty="l",xlim=c(-0.01,0.8),ylim=c(-0.01,0.8), xlab="",ylab="")
+  par(new=T)
+}
+text(xm[1:4]+0.05, xm[5:8]+0.05,labels=c("IgM_cntr","IgM_APS","IgG_cntr","IgG_APS"))
+
+peptotest=unlist(lapply(pepbe, function(p) {
+  n=length(p) %/% 100
+  if(n==0) n=1 
+  names(p)[1:n]
+  #names(p[1])
+}))
+ppttlab=t(future_sapply(peptotest,function(p){
+  pall=unlist(G_good[grep(p,G70peps),])
+  pm=unlist(Gm_good[grep(p,Gm38peps),1:2])
+  if (sum(lengths(pm))==0) pm=c(Control=0,APLS=0)
+  names(pm)=paste(c("C","A"),"IgM",sep="_")
+  pg=unlist(Gg_good[grep(p,Gg45peps),1:2])
+  if (sum(lengths(pg))==0) pg=c(Control=0,APLS=0)
+  names(pg)=paste(c("C","A"),"IgG",sep="_")
+  data.frame(t(pall),t(pm),t(pg))
+}))
+x=hclust(dist(ppttlab), method = "ward.D2")
+plot(x)
+x$order
+x=matrix(unlist(ppttlab),nrow=length(peptotest))
+colnames(x)=colnames(ppttlab)
+peptypes=aggregate(names(peptotest), by=as.data.frame(x), "list")
+peptypes=peptypes[order(lengths(peptypes$x), decreasing = T),]
+xn=lengths(peptypes$x)
+peptypes=cbind(peptypes,xn)
+
+#pptpshrt=read.csv("peptypesshorter.csv")
+
+MCu=((ppttlab[,8]>0)+(ppttlab[,12]>0))>0
+MCd=((ppttlab[,8]<0)+(ppttlab[,12]<0))>0
+MAu=((ppttlab[,4]>0)+(ppttlab[,13]>0))>0
+MAd=((ppttlab[,4]<0)+(ppttlab[,13]<0))>0
+GCu=((ppttlab[,2]>0)+(ppttlab[,14]>0))>0
+GCd=((ppttlab[,2]<0)+(ppttlab[,14]<0))>0
+GAu=((ppttlab[,1]>0)+(ppttlab[,15]>0))>0
+GAd=((ppttlab[,1]<0)+(ppttlab[,15]<0))>0
+venn=data.frame(MCu,MCd,MAu,MAd,GCu,GCd,GAu,GAd)
+venn=euler(venn, shape="ellipse")
+plot(venn, quantities=T)
+venn=data.frame(MAd,MAu,GAd,GAu)
+venn=euler(venn, shape="ellipse")
+plot(venn, quantities=T)
+
+write.csv(peptotest, file="peptotest.csv")
+seq2fasta(peptotest, fnm="pptt.fasta")
+
+j=dlG %in% 1:51
+i=cut(log10(vertex_attr(lGpos)$N[j]), 25, labels = F)
+boxplot(log10(eclG$vector[j])~i, notch=T)
+aggregate(vertex_attr(lGpos)$N[j], by=list(i), "range")
+
+j=dlG>100
+i=cut(log10(vertex_attr(lGpos)$N[j]), 50, labels = F)
+boxplot(log10(eclG$vector[j])~i, notch=T)
+aggregate(vertex_attr(lGpos)$N[j], by=list(i), "range")
+
+# Relation between ec in Gpos and in lGpos
+topecGp=ecGp$vector[ecGp$vector>0.2]
+n=names(topecGp)
+l=pep2lcs[n]
+plot(lengths(l), ty="l")
+
+topec_lcl=future_lapply(n,function(p){
+  sort(table(unlist(apply(sapply(l[p],names),1,grep,lGpsmpeps))),decreasing=T)
+})
+
+# crosscheck Gpos and lGpos clustering
+
+Gposm=clusterGraph(Gpos, resol=25)
+load("Gctrpeps")
+Gposmpeps=Gpeps
+x=Gposmpeps
+x=melt(x)
+y=x[,2]
+names(y)=x[,1]
+modularity(Gpos,as.factor(y[names(V(Gpos))]))
+
+ppperlcl=lapply(lGpsmpeps, function(l) table(unlist(lapply(lcs2pep[l],names))))
+tppperl=table(unlist(lapply(ppperlcl, names)))
+length(tppperl)
+table(tppperl)
+lclrepp=melt(ppperlcl)
+x=aggregate(lclrepp[,2:3],by=list(lclrepp$Var1),"c")
+x[[2]]=sapply(seq_along(x[[3]]),function(i) x[[3]][[i]][which.max(x[[2]][[i]])])            
+x=x[,-3]            
+y=x[,2]            
+names(y)=x[,1]          
+x=y
+modularity(Gpos,as.factor(x[names(V(Gpos))]))
+
+tpppcl=melt(x)
+tpppclpeps=aggregate(rownames(tpppcl), by=list(tpppcl$value), "list")
+x=tpppclpeps$x
+names(x)=tpppclpeps$Group.1
+tpppclpeps=x
+mxlcl=sapply(Gposmpeps, function(p1){
+      sapply(tpppclpeps, function(p2){ 
+        length(intersect(p1,p2))
+      })
+})
+
+require(RcppHungarian)
+
+sln=HungarianSolver(log10(3097-mxlcl))
+o=sln$pairs
+ow=mxlcl[o]/rowMins(cbind(lengths(tpppclpeps)[o[,1]],lengths(Gposmpeps)[o[,2]]))
+image(log10(mxlcl+1)[sln$pairs[order(ow,decreasing=T) ,1], sln$pairs[order(ow,decreasing=T),2]])
+
+# ec of Gposm
+
+ppeccGpos=sapply(Gposmpeps, function(l) {
+  eclst=eigen_centrality(induced.subgraph(Gpos,l))
+  names(which.max(eclst$vector*ecGp$vector[names(eclst$vector)]))
+})
+
+ppgood=intersect(ppeccGpos,peptotest)           
+
+ppecc_=setdiff(ppeccGpos,peptotest)
+ppptt_=setdiff(peptotest,ppeccGpos)
+
+dpppp=distances(Gpos,v=ppecc_,to=ppptt_)
+ppplus=ppecc_[rowMins(dpppp)==2]
+
+ppNL=c(ppgood,ppptt_,ppplus)
+dx=distances(Gpos,ppNL,ppNL)
+x=dx
+diag(x)=10
+rm=rowMins(x)
+
+# Connectivity in lGpos and the lGpsm cluster boundaries
+y=eclG$vector
+y[is.na(y)|y==0]=1e-20
+
+ecmxmncon=t(future_sapply(lGpsmpeps, function(l) {
+  L=length(l)
+  eclst=eigen_centrality(induced.subgraph(lGpos,l))$vector
+  eclst[is.na(eclst)|eclst==0]=1e-20
+  ec=eclst*y[names(eclst)]
+  ec2=max(ec)
+  ec1=min(ec)
+  ecmax=names(which.max(ec))
+  ecmin=names(which.min(ec))
+  nn2=length(intersect(l,names(ego(induced.subgraph(lGpos,l),1,ecmax)[[1]])))
+  nn1=length(intersect(l,names(ego(induced.subgraph(lGpos,l),1,ecmin)[[1]])))
+  return(c(L=L, ecmin=ec1, ecmax=ec2, NNmin=nn1, NNmax=nn2))
+}))
+plot(as.data.frame(log10(ecmxmncon)), cex=0.7, pch=16, col=rgb(0,0,0,0.3))
+for (i in 1:ncol(ecmxmncon)) lGpsm=set_vertex_attr(lGpsm,name=colnames(ecmxmncon)[i], value=ecmxmncon[,i])
+
+lGpsm=set_vertex_attr(lGpsm, name="ClofCl", value=ecmaxntwk)
+write.graph(lGpsm, format = "graphml", file="lGpsm.graphml")

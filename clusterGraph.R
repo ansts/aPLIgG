@@ -44,7 +44,7 @@ clusterGraph <- function(G, resol=1, fnm=NULL, nodes=14) {
     x0[names(x3)]=x3
     return(x0)
   }))
-  Gctr= simplify(Gctr, edge.attr.comb = "sum")
+  Gctr= simplify(Gctr, edge.attr.comb = list(weight="sum", LCS="ignore"))
   clnm=paste("C",seq_along(V(Gctr)), sep="")
   Gpeps=vertex_attr(Gctr)$name
   names(Gpeps)=clnm
@@ -96,12 +96,11 @@ clusterGraph <- function(G, resol=1, fnm=NULL, nodes=14) {
     cmp=components(Gctrsm)
     c(th,cmp$no,sum(cmp$csize<5), graph.density(Gctrsm))
   }))
-  # x=mst(Gctr)
-  # thr=max(E(x)$weight)
-  thr=min(thrscan[thrscan[,3]<round(0.05*n),1])
+ 
+  thr=min(thrscan[thrscan[,3]<round(0.02*n),1])
   Gctrsm=delete.edges(Gctr,E(Gctr)[E(Gctr)$weight>thr])
-  #Gctrsm=set.edge.attribute(Gctrsm,"weight", value=x)
-  #Gctrsm=set.vertex.attribute(Gctrsm,"size",value=3*log(vertex_attr(Gctrsm)$size+0.5,2))
+  Gctrsm=set.edge.attribute(Gctrsm,"weight", value=1/edge_attr(Gctrsm)$weight) # Back to weight as a similarity measure
+
   save(Gctrsm,file=paste("Gctrsm",fnm,sep=""))
  
   write_graph(Gctrsm,format = "graphml", file=paste("Gctrsm",fnm, ".graphml",sep=""))
