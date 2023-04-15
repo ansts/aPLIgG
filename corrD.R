@@ -8,13 +8,18 @@ corrD=function(G){
   i=which.max(table(cmp))
   G=induced.subgraph(G, vids=V(G)[cmp==i])
   N=length(V(G))
-  mx=distances(G, to=V(G), weights = NA)
+  #mx=distances(G, to=V(G), weights = NA)
+  G=set_edge_attr(G, name="weight", value=1/edge_attr(G)$weight)
+  mx=as.matrix(as_adj(G, attr="weight"))
+  mx[mx==0]=10*max(mx)
+  diag(mx)=0
   emb=cmdscale(mx,k=N-3, eig=T, list.=T)
   emb=emb$points[,1:sum(emb$eig>0)]
   
   D=sapply(seq_along(emb[,1]), function(i){
     #print(i)
-    d=dista(t(emb[i,]), emb, trans=F)[-i]
+    #d=dista(t(emb[i,]), emb, trans=F)[-i]
+    d=dista(t(mx[i,]), mx, trans=F)[-i]
     s=cut(d,100, labels=F)
     ts=table(s)
     ds=sapply(as.numeric(names(ts)), function(si) max(d[s==si]))
@@ -33,6 +38,6 @@ corrD=function(G){
     #abline(lm(crv[xlo:xup,2]~crv[xlo:xup,1]))
     summary(lm(crv[xlo:xup,2]~crv[xlo:xup,1]))$coefficients[2,1]
   })
-  return(median(D))
+  return(c(MaxD=max(D), MedianD=median(D)))
 }
 
