@@ -1135,3 +1135,5 @@ adge=pbsapply(ALg, function(l){
 },cl=cl)
 closeAllConnections()
 gfield=adge[1]/(BymgpnS)
+
+
