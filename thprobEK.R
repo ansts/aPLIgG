@@ -1,5 +1,4 @@
 thprobEK = function(X1,X2,L=Lcsch7,A=20) {
-  
 
   p1=X1
   n1=L[[p1]] 
@@ -22,8 +21,8 @@ thprobEK = function(X1,X2,L=Lcsch7,A=20) {
   })
   # order patterns according to their probabilities
   l = l[order(pp,decreasing = TRUE)]
-  i=which(l1 %in% l)[order(pp,decreasing = TRUE)]
-  j=which(l2 %in% l)[order(pp,decreasing = TRUE)]
+  i=which(n1$Group.1 %in% l)[order(pp,decreasing = TRUE)]
+  j=which(n2$Group.1 %in% l)[order(pp,decreasing = TRUE)]
   nprod = (n1_[i]*n2_[j])
   pp = pp[order(pp,decreasing = TRUE)]
   
@@ -53,7 +52,8 @@ thprobEK = function(X1,X2,L=Lcsch7,A=20) {
       t = matrix(temp, byrow = TRUE, ncol = 2)
       t = unique(t) # remove identical rows
       t = matrix(t, ncol = 2) 
-
+      
+      
       if(ii>1) {
         # search which correspondences from the previous patterns occur in the new one:
         m = unlist(sapply(1:length(allcomb1),function(k){
@@ -64,17 +64,16 @@ thprobEK = function(X1,X2,L=Lcsch7,A=20) {
           return(m)
         }))
         
-       if(length(m)>0)
+        
+        if(length(m)>0)
         { # remove the duplicated correspondences:
           t = t[-m,]
           t = matrix(t, ncol = 2)
           nprod[ii] = length(t[,1])
-
         }
         
       }
       
-
       # convert to regular expressions, in order to search in the next patterns:
       t = apply(t,c(1,2), function(x) paste0("(",paste0(unlist(strsplit(x,"")),collapse = ")\\d*("),")"))
       allcomb1 = c(allcomb1,t[,1])
@@ -84,9 +83,7 @@ thprobEK = function(X1,X2,L=Lcsch7,A=20) {
     
   }
   
-  sum(pp*nprod)                   
-
-
+  sum(pp*nprod) 
 }
 
 
