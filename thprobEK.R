@@ -1,5 +1,5 @@
 thprobEK = function(X1,X2,L=Lcsch7,A=20) {
-  
+
   p1=X1
   n1=L[[p1]] 
   n1_=n1$n
@@ -21,8 +21,8 @@ thprobEK = function(X1,X2,L=Lcsch7,A=20) {
   })
   # order patterns according to their probabilities
   l = l[order(pp,decreasing = TRUE)]
-  i=which(l1 %in% l)[order(pp,decreasing = TRUE)]
-  j=which(l2 %in% l)[order(pp,decreasing = TRUE)]
+  i=which(n1$Group.1 %in% l)[order(pp,decreasing = TRUE)]
+  j=which(n2$Group.1 %in% l)[order(pp,decreasing = TRUE)]
   nprod = (n1_[i]*n2_[j])
   pp = pp[order(pp,decreasing = TRUE)]
   
@@ -83,8 +83,7 @@ thprobEK = function(X1,X2,L=Lcsch7,A=20) {
     
   }
   
-  sum(pp*nprod)                   
-  
+  sum(pp*nprod) 
 }
 
 
