@@ -52,6 +52,7 @@ thprobEK = function(X1,X2,L=Lcsch7,A=20) {
       t = matrix(temp, byrow = TRUE, ncol = 2)
       t = unique(t) # remove identical rows
       t = matrix(t, ncol = 2) 
+
       if(ii>1) {
         # search which correspondences from the previous patterns occur in the new one:
         m = unlist(sapply(1:length(allcomb1),function(k){
@@ -62,7 +63,7 @@ thprobEK = function(X1,X2,L=Lcsch7,A=20) {
           return(m)
         }))
 
-        
+
         if(length(m)>0)
         { # remove the duplicated correspondences:
           t = t[-m,]
