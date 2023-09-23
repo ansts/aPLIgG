@@ -14,7 +14,7 @@ require(combinat)
 require(entropy)
 require(gmp)
 require(DEoptimR)
-
+require(gtools)
 
 load("lcslab_vars")
 load("matpep")
@@ -168,7 +168,7 @@ lcsch0=sapply(sch0, function(s) length(unique(apply(ij,2,function(j) paste(unlis
 tlcsch0=aggregate(names(lcsch0), by=list(lcsch0), "list")
 lcschn=names(lcsch0)
 
-# lcschn are all 876 possible arrangements of peptide seqs with residues labeled 
+# lcschn are all 877 possible arrangements of peptide seqs with residues labeled 
 # from left to right with numbers 1:7 and with repetitions labeled with the same 
 # number - the number of the first occurrence of the repeated residue. 
 # The homoheptamer is omitted as too rare and trivial. Lcsch are all unique 
@@ -320,6 +320,7 @@ lcschnf=sapply(lcschn, function(x) {
   (20^-7)*factorial(20)/factorial(20-n)
 })
 
+
 lcschent=sapply(lcschn, function(x) entropy(table(unlist(strsplit(x, split=""))), method="ML"))
 
 # Small graph ----
@@ -351,17 +352,27 @@ lcschlt=sapply(lcschn, function(s) length(table(unlist(strsplit(s,split="")))))
 #   })
 # }, cl=cl))
 # closeAllConnections()
-# "
+# 
+
+x=sapply(1:7,function(z){
+  y=rep(aa,each=10000)
+  sample(y)
+})
+x=apply(x,1,function(l) paste(l,collapse="",sep=""))
+ss=x
+
 #ss=sample(names(V(Gmat)),250000)
 #ss=sapply(1:250000, function(i) paste(sample(aa,7,replace = T),collapse="", sep=""))
 #ss=sample(rndscflat)
- core=sample(V(Gmat),1)
- egg=names(ego(Gmat,2,core)[[1]])
- g=induced.subgraph(Gmat,egg)
-
+ # core=sample(V(Gmat),1)
+ # egg=names(ego(Gmat,2,core)[[1]])
+ # g=induced.subgraph(Gmat,egg)
+# 
 # al=adjL(ss)
 # g=adjL2Glite(al)
 # g=induced_subgraph(g, V(g)[components(g)$membership==1])
+
+
 load("Gmat")
 g=Gmat
 Gmat=NULL
@@ -370,7 +381,6 @@ gc()
 
 vg=names(V(g))
 ltrcnt=pbsapply(vg,function(x) length(table(unlist(strsplit(x, split="")))))
-
 dg=degree(g)
 vrp=vrepptrnalize(vg)
 esg=ends(g, E(g))
@@ -387,7 +397,14 @@ diag(p1)=tmpn*(tmpn-1)/2
 
 esp=cbind(vrp[esg[,1]],vrp[esg[,2]])
 rm(esg)
+
 pwm=consensusMatrix(AAStringSet(vg))/length(vg)
+
+lcschnfmat=lcschPwmp(L=lcschn)
+save(lcschnfmat,file="lcschnfmat")
+plot(lcschnf, lcschnfmat, xlim=c(1e-8,1), ylim=c(1e-8,1), log="xy")
+lines(c(1e-8,1),c(1e-8,1))
+
 # x=apply(pwm+3e-4,2,function(l) sum(l*log2(l)))
 # x=x/20
 # y=0.05*log2(0.05)
@@ -407,11 +424,11 @@ closeAllConnections()
 
 Bymg=(Bymg+t(Bymg))/2
 
-# lcschlt_n=factorial(20)/factorial(20-lcschlt)
-# p1_=lcschlt_n%x%lcschlt_n
-# p1_=array(p1_,dim=dim(Bymg), dimnames=dimnames(Bymg))
-# diag(p1_)=lcschlt_n*(lcschlt_n-1)/2
-# lcschlt_r=(p1*20^7*(20^7-1))/(2*p1_*ecount(g))
+lcschlt_n=factorial(20)/factorial(20-lcschlt)
+p1_=lcschlt_n%x%lcschlt_n
+p1_=array(p1_,dim=dim(Bymg), dimnames=dimnames(Bymg))
+diag(p1_)=lcschlt_n*(lcschlt_n-1)/2
+lcschlt_r=(p1*20^7*(20^7-1))/(2*p1_*ecount(g))
 
 gentr=pbsapply(names(V(g)),function(x) entropy(table(unlist(strsplit(x, split=""))), method="ML"))
 pentr=pbsapply(lcschn,function(x) entropy(table(unlist(strsplit(x, split=""))), method="ML"))
@@ -422,7 +439,6 @@ cl=makeCluster(16)
 el=t(pbapply(el,1,sort,cl=cl))
 closeAllConnections()
 
-Byshdw=Bymg!=0
 vagg=aggregate(el[,1], by=list(el[,1],el[,2]), "length")
 ij=as.matrix(vagg[,1:2])
 y=as.numeric(vagg$x)
@@ -440,7 +456,6 @@ vaggmm=vaggmm-vaggm
 
 nsqpp=pbsapply(seq_along(tmpn), function(i1){
       sapply(seq_along(tmpn), function(i2){
-        #j=Byshdw[i1,]&Byshdw[i2,]
         tmpn[i1]+tmpn[i2]
   })
 })
@@ -452,26 +467,27 @@ image((vaggm[order(pentr),order(pentr)]/p1[order(pentr),order(pentr)])>0)
 corrplot(vaggm>0, method = "color", is.corr = F, order="AOE",hclust.method = "ward.D2")
 
 # empirical
+# pseudocounts have to be added to vaggmm and nsqpp
 nes=ecount(g)
 p4=aggregate((dg), by=list(vrp), "mean")
 x=p4$x
 names(x)=p4$Group.1
 p4=x
 p4=pbsapply(names(p4), function(n1){
-  sapply(names(p4), function(n2){
-    if (n1!=n2) p4[n1]*p4[n2] else p4[n1]*(p4[n1]-1)/2
-  })
+      sapply(names(p4), function(n2){
+          if (n1!=n2) p4[n1]*p4[n2] else p4[n1]*(p4[n1]-1)/2
+      })
 })
 rownames(p4)=colnames(p4)
 x=array(0,dim=dim(Bymg), dimnames=dimnames(Bymg))
 x[rownames(p4),colnames(p4)]=p4
-gmatwtmx=x*nsqpp/(2*vaggmm)
-#x=(p4[el]*nsqpp[el])/(vaggmm[el]*2) 
+gmatwtmx=(x)*nsqpp/(2*vaggmm)
+
 wt=1/gmatwtmx[el]
 
 # theoretical ?
 p4t=Bymg*p1
-p4t=rowSums(p4t)/(tmpn+0.5)
+p4t=rowSums(p4t)/(tmpn)
 p4t=pbsapply(names(p4t), function(n1){
   sapply(names(p4t), function(n2){
     if (n1!=n2) p4t[n1]*p4t[n2] else p4t[n1]*(p4t[n1]-1)/2
@@ -517,6 +533,7 @@ ecg=eigen_centrality(g)
 # Igome graph -----
 
 load("G")
+dG=degree(G)
 ventr=pbsapply(names(V(G)),function(x) entropy(table(unlist(strsplit(x, split=""))), method="ML"))
 boxplot((dG)~round(ventr[names(dG)],2), notch=T, varwidth=T)
 
@@ -533,4 +550,34 @@ par(new=T)
 hist(ventrc,xlim=c(0,2), col=rgb(1,0,0,0.3))
 par(new=F)
 
+esG=ends(G, E(G))
+vG=names(V(G))
+vrp=vrepptrnalize(vG)
+x=rep(0,length(lcschn))
+names(x)=lcschn
+tmpn=table(vrp)
+x[names(tmpn)]=tmpn
+tmpn=x
+esp=cbind(vrp[esG[,1]],vrp[esG[,2]])
+rm(esG)
+closeAllConnections()
+el=esp
+cl=makeCluster(16)
+el=t(pbapply(el,1,sort,cl=cl))
+rm(esp)
+closeAllConnections()
+load("gmatwtmx")
+wt=1/gmatwtmx[el]
+gentr=pbsapply(names(V(G)),function(x) entropy(table(unlist(strsplit(x, split=""))), method="ML"))
 
+
+G=set_edge_attr(G, "weight", value=wt)
+ij=sapply(unique(gentr), function(n) sample(which(gentr==n),500, replace = T))
+boxplot(log10(strength(G)[ij])~round(gentr[ij],2), xlab="Entropy [bits]", ylab="Log Strength")
+boxplot(log10(dG[ij])~round(gentr[ij],2), xlab="Entropy [bits]", ylab="Log Strength")
+
+X=lcschnf*vcount(G)
+table(Expect=X<1,Actual=tmpn==0)
+table(X[X<1],tmpn[X<1])
+
+# define pseudocounts for 3 schemes which are 0 in Gmat and not 0 in G (one is GGGGGGG)

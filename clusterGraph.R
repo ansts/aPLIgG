@@ -44,7 +44,7 @@ clusterGraph <- function(G, resol=1, fnm=NULL, nodes=14) {
     x0[names(x3)]=x3
     return(x0)
   }))
-  Gctr= simplify(Gctr, edge.attr.comb = list(weight="sum", LCS="ignore"))
+  Gctr= simplify(Gctr, edge.attr.comb = list(weight="sum", LCS="ignore")) #weight=function(x){length(x)}
   clnm=paste("C",seq_along(V(Gctr)), sep="")
   Gpeps=vertex_attr(Gctr)$name
   names(Gpeps)=clnm
@@ -64,7 +64,7 @@ clusterGraph <- function(G, resol=1, fnm=NULL, nodes=14) {
   rownames(A)=names(V(Gctr))
   colnames(A)=names(V(Gctr))
   eG=apply(ends(Gctr, E(Gctr), E(Gctr)),2,unlist) # matrix of edge ends
-  w=edge.attributes(Gctr)$weight                  # number of edges between clusters
+  w=edge.attributes(Gctr)$weight                  # number of edges between clusters 
   A[eG]=w                                         # adjacency mx of clusters
   A=t(A)
   A[eG]=w
@@ -97,7 +97,7 @@ clusterGraph <- function(G, resol=1, fnm=NULL, nodes=14) {
     c(th,cmp$no,sum(cmp$csize<5), graph.density(Gctrsm))
   }))
  
-  thr=min(thrscan[thrscan[,3]<round(0.02*n),1])
+  thr=min(thrscan[thrscan[,3]<round(0.05*n),1])
   Gctrsm=delete.edges(Gctr,E(Gctr)[E(Gctr)$weight>thr])
   Gctrsm=set.edge.attribute(Gctrsm,"weight", value=1/edge_attr(Gctrsm)$weight) # Back to weight as a similarity measure
 

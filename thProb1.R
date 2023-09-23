@@ -37,7 +37,15 @@ thProb1 = function(X1,X2,co=NULL, L=Lcsch, A=20) {
     x=x[order(x$al),]
     
     if (nrow(x)>1){
-      # Construct a matrix of correspondences
+      # Some combination of letters (usually few) generate more than one of the
+      # observed common patterns because the 1234567 (Rep1) patterns show that
+      # same letters are expected at the same place in both peptides while
+      # generating more than one pattern of the Rep0 type. Each such combination
+      # of letters has to be represented finally by only one Rep0 pattern and it
+      # has to be one of a maximal number of different letter. To this end we
+      # construct a matrix of correspondences by position in Rep1 patterns
+      # identify and to eliminate redundant Rep0 patterns.
+      
         p12=unique(apply(x,1,function(y){
             apply(sapply(strsplit(y[1:2],split=""),unlist),1,paste,collapse ="")
         }))
